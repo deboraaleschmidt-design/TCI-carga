@@ -1,0 +1,258 @@
+================================================================================
+HANDOFF COMPLETO — PAINEL CARGA TCI (para outra IA)
+Gerado: 24/06/2026
+Usuária: Débora | Projeto: TCI Claro — controle de carga de materiais em campo
+================================================================================
+
+1. OBJETIVO DO NEGÓCIO
+----------------------
+A equipe TCI precisa saber, em tempo quasi-real, o que cada TÉCNICO TCI tem em
+campo:
+
+  A) PAINEL MODEMS — quais seriais (ONT/modem) cada técnico carrega
+  B) PAINEL MISCELÂNIA — quanto de drop, conectores, etc. cada um tem, com
+     comparação DIA A DIA: "ontem tinha 1000m drop → hoje baixou ou manteve?"
+
+Hoje isso depende de várias fontes manuais (colagem 10h, copy/paste Forms,
+WhatsApp) e ninguém tem uma visão única.
+
+A planilha OPERACIONAL original NÃO pode ser alterada. Foi criada uma planilha
+NOVA só para painéis (v2), lendo as cópias via Apps Script.
+
+
+2. FONTES DE DADOS (3 planilhas Google — CÓPIAS de teste)
+---------------------------------------------------------
+
+2.1 MATERIAIS TCI BASE (operacional — cópia)
+    ID: 1dxK-p-blCB8TBRAfCBRWhjXHNiYBpGExkFAQE9PQa4M
+    URL: https://docs.google.com/spreadsheets/d/1dxK-p-blCB8TBRAfCBRWhjXHNiYBpGExkFAQE9PQa4M/edit
+
+    Abas (gids confirmados via htmlview):
+      gid=0           BASE TCI          (~1916 linhas movimentos manuais)
+      gid=807266512   Página20
+      gid=1325113353  ALMOX SERIALIZADA (~22000 seriais — colagem logística 10h)
+      gid=1545937025  DINAMICA MICELANEAS (fórmulas #REF! fora do Google)
+      gid=523228650   BASE MICELANEAS   (~8800 linhas misc — colagem 10h)
+      gid=513608811   DIN TÉCNICO TCI   (pivot todos técnicos almox, ~246)
+      gid=547203531   ENCERRADAS        (espelho Forms, #REF! se desconectado)
+
+    BASE TCI colunas: SERIAL, COLABORADOR, ATUAL, RECEPTOR, Tipo de Operação,
+    Situação (TCI), etc.
+
+    ALMOX colunas: Nº de série, Gestech (=TT), Técnico, Tipo de Material, etc.
+
+    BASE MISC colunas: codarmazem (=TT), armazem (=nome), material, saldo,
+    Grupo Material, Agregador, subsegmento, etc.
+
+2.2 PLANILHA EQUIPES (cadastro técnicos TCI — cópia)
+    ID: 1K1SzwTSSCri57o0U1A58EWT6cA4s0-XFjC5f5PyYR-A
+    URL: https://docs.google.com/spreadsheets/d/1K1SzwTSSCri57o0U1A58EWT6cA4s0-XFjC5f5PyYR-A/edit
+    Aba principal: gid=1514437459 ("Cópia de Página1" no export)
+    Colunas: NOME DO TECNICO, TT, TR, AREA ATUAL, status (ATIVO/DESATIVADO)
+    ~44 técnicos TCI — ESTA é a lista oficial para filtrar painéis.
+
+2.3 ENCERRADO OK - INSTALAÇÃO / Forms (cópia)
+    ID: 1ixrY1sw9XovlNcLIcSX2c6-Ij-Q4qyDbHhUOeH6SWII
+    URL: https://docs.google.com/spreadsheets/d/1ixrY1sw9XovlNcLIcSX2c6-Ij-Q4qyDbHhUOeH6SWII/edit
+    gid=1699444600 — respostas Forms (~13460 linhas)
+    Colunas: NOME DO TÉCNICO, SERIAL INSTALADO 1/2, SERIAL REVERSA, etc.
+    Hoje muitas vezes copiado/colado na aba ENCERRADAS da planilha materiais.
+
+2.4 Planilha original (NÃO MEXER — referência)
+    ID: 1W1K7OzbZejmSbEUnQxJ9u43phV0sHYNWkeW3KIbv0vM (produção online)
+
+
+3. PLANILHA PAINEL v2 (onde o script DEVE estar)
+------------------------------------------------
+    ID: 1YAYbViLyvQoIEkeBizwOHSKMc9sxkE0Rl8L8bUGro9M
+    Nome: TCI Carga
+    URL: https://docs.google.com/spreadsheets/d/1YAYbViLyvQoIEkeBizwOHSKMc9sxkE0Rl8L8bUGro9M/edit
+    gid CONFIG: 1399571813
+
+    Abas esperadas após setup:
+      INÍCIO, CONFIG, HISTORICO MISC, PAINEL MISCELANIA, PAINEL MODEMS, RESUMO DROP
+
+    Apps Script project ID visto no browser:
+      17PsXu5YCUvJlHjkDIXAWghvwvqTD85UgD13IFqB7F9vq8zIVxXAuKe7
+
+
+4. REGRAS DE NEGÓCIO ACORDADAS
+------------------------------
+  • Chave técnico = TT (padronizar: TT831526)
+  • Filtrar SOMENTE técnicos da planilha EQUIPES (44 TTs)
+  • Miscelânia: EXCLUIR ONT (Grupo=ONT, FIBRA ONT (SERIAL), nomes ONT*)
+  • Painel misc: snapshot diário da BASE MICELANEAS; comparar penúltimo × último dia
+  • Situações: BAIXOU, MANTEVE, SUBIU, ZEROU, ENTROU
+  • RESUMO DROP no topo: soma saldos de itens com "DROP" no nome/agregador
+  • Painel modems: fonte ALMOX SERIALIZADA, filtro por TT da EQUIPES
+  • WhatsApp bipados (DE X PARA Y TT…) = automação futura via n8n (NÃO implementado)
+  • Usuária quer TUDO aberto no Chrome (não Notepad/navegador padrão)
+  • IA anterior NÃO consegue editar Google Sheets remotamente (só ler export se público)
+
+
+5. ARQUITETURA PROPOSTA
+-----------------------
+
+  [Cópia MATERIAIS] ──openById──┐
+  [Cópia EQUIPES]   ──openById──┼──► [Planilha PAINEL v2 + Apps Script]
+  [Cópia Forms]     (futuro)  ──┘         │
+                                          ├── HISTORICO MISC (snapshot/dia)
+                                          ├── PAINEL MISCELANIA (ontem×hoje)
+                                          └── PAINEL MODEMS (seriais/TT)
+
+  NÃO colocar script na planilha MATERIAIS — ela continua só colagem manual.
+
+
+6. O QUE FOI CRIADO LOCALMENTE (PC — funciona)
+----------------------------------------------
+Pasta: C:\Users\debor\OneDrive\Desktop\PROJETO IA\TEMAS\PAINEL-CARGA-TCI\
+
+  TCI-MontarPainelCarga.gs   ← Apps Script CORRETO (~763 linhas)
+  SETUP-PAINEL-CARGA.html    ← página Chrome para copiar código
+  CONFIG-COLAR.csv             ← valores CONFIG para colar na mão
+  CONFIG-VAZIA-LEIA-ME.txt     ← troubleshooting
+  DADOS\                       ← exports CSV das 3 planilhas (análise feita)
+
+  Atalhos .bat (Chrome):
+    CRIAR-PAINEL-V2.bat
+    COPIAR-CODIGO-PAINEL.bat
+    ABRIR-TCI-CARGA.bat
+    ABRIR-COPIAS-FONTE.bat
+    CORRIGIR-CONFIG-VAZIA.bat
+    ABRIR-CONFIG-CSV.bat
+
+  Projeto relacionado (NÃO CONFUNDIR):
+    PAINEL DESCONEXAO CLARO\TCI-MontarPainel.gs  ← script DIFERENTE (Desconexão)
+
+
+7. O QUE O SCRIPT CORRETO FAZ (TCI-MontarPainelCarga.gs)
+--------------------------------------------------------
+Menu: "TCI Carga" (NÃO "TCI")
+
+  montarEstruturaInicial     → INÍCIO, CONFIG, HISTORICO MISC
+  corrigirConfigVazio        → preenche CONFIG + alert popup
+  testeGravarB2              → escreve OK-TESTE em B2 (diagnóstico)
+  registrarSnapshotMisc      → lê BASE MICELANEAS, filtra TT+sem ONT, grava HISTORICO
+  montarPainelMiscelania     → compara 2 últimos snapshots, RESUMO DROP + detalhe
+  montarPainelModems         → lê ALMOX, agrupa seriais por TT equipe
+  atualizarTudo              → snapshot + ambos painéis
+
+CFG_PADRAO_ (fallback se CONFIG vazia):
+  MATERIAIS_ID: 1dxK-p-blCB8TBRAfCBRWhjXHNiYBpGExkFAQE9PQa4M
+  EQUIPES_ID:   1K1SzwTSSCri57o0U1A58EWT6cA4s0-XFjC5f5PyYR-A
+  ABA_MISC:     BASE MICELANEAS
+  ABA_ALMOX:    ALMOX SERIALIZADA
+  ABA_EQUIPES:  Cópia de Página1
+  GID_EQUIPES:  1514437459
+  PAINEL_ID_:   1YAYbViLyvQoIEkeBizwOHSKMc9sxkE0Rl8L8bUGro9M
+
+
+8. PROBLEMAS ENCONTRADOS (causa raiz e o que NÃO funcionou)
+-----------------------------------------------------------
+
+8.1 CONFIG SÓ COM "Chave / Valor" — CAUSA RAIZ CONFIRMADA
+    O Apps Script da planilha TCI Carga tinha o código ERRADO:
+    TCI-MontarPainel.gs da DESCONEXÃO CLARO (menu "TCI", Faturar Claro,
+    Painel Gerencial, Respostas ao formulário 1).
+    Também existia arquivo "Sem título.gs" no projeto Apps Script.
+    → Usuária colou script errado (ou setup abriu código de outro projeto).
+
+8.2 Bugs corrigidos no TCI-MontarPainelCarga.gs (mas talvez nunca aplicados no Google)
+    • getRange(row,col,numRows,numCols) — versões antigas usavam linha final errada
+    • sh.clear() + setValues falhava silenciosamente em alguns casos
+    • Múltiplas iterações de fix sem usuária atualizar código no Apps Script
+
+8.3 IA não edita Google Sheets
+    Mesmo com link público, Cursor/IA só lê export. Não executa Apps Script.
+
+8.4 Download Excel perde IMPORTRANGE e fórmulas Google
+
+8.5 Abrir HTML local no Chrome — path com espaço "PROJETO IA" quebrou file://
+    Corrigido usando caminho completo sem file://
+
+8.6 Acionadores vazios — NORMAL; menu manual não precisa de trigger
+
+
+9. ESTADO ATUAL (último conhecido)
+----------------------------------
+  • Planilha TCI Carga existe (1YAYbViLyvQoIEkeBizwOHSKMc9sxkE0Rl8L8bUGro9M)
+  • Aba CONFIG: só cabeçalho Chave/Valor — linhas 2+ vazias
+  • Apps Script: código DESCONEXÃO ainda estava lá (screenshot usuária 24/06)
+  • Painéis PAINEL MISCELANIA / PAINEL MODEMS: provavelmente NÃO gerados ainda
+  • HISTORICO MISC: provavelmente vazio
+  • Cópias MATERIAIS/EQUIPES: usuária liberou acesso leitor para IA
+  • Exports CSV locais em DADOS\ disponíveis para análise offline
+
+
+10. PRÓXIMOS PASSOS (ordem correta para nova IA)
+------------------------------------------------
+
+PASSO 1 — Substituir Apps Script (CRÍTICO)
+  a) Planilha TCI Carga → Extensões → Apps Script
+  b) Apagar TODO conteúdo de Código.gs (Desconexão)
+  c) Remover arquivo "Sem título.gs"
+  d) Colar INTEGRALMENTE: TCI-MontarPainelCarga.gs (763 linhas)
+  e) Salvar, renomear projeto "Painel Carga TCI"
+  f) Executar função testeGravarB2 → B2 deve = OK-TESTE-HH:mm
+  g) F5 na planilha → menu deve ser "TCI Carga" (não "TCI")
+
+PASSO 2 — CONFIG (opcional se vazia — script usa CFG_PADRAO_)
+  Colar CONFIG-COLAR.csv na aba CONFIG A1, OU menu Corrigir CONFIG vazio
+
+PASSO 3 — Gerar painéis
+  TCI Carga → Tudo (snapshot + painéis)
+  Requer: cópia MATERIAIS com BASE MICELANEAS e ALMOX colados (~10h)
+  Requer: autorização Apps Script para ler spreadsheets externos (3 cópias)
+
+PASSO 4 — Validar
+  • PAINEL MODEMS: ~44 técnicos da equipe, seriais do Almox
+  • PAINEL MISCELANIA: RESUMO DROP + detalhe; 1º dia = sem comparação;
+    2º snapshot = ontem×hoje
+
+PASSO 5 — Opcional futuro
+  • Acionador diário 10:30 → registrarSnapshotMisc
+  • n8n + WhatsApp grupo Movimentação Material → MOVIMENTOS
+  • IMPORTRANGE Forms encerradas direto (acabar copy/paste)
+
+
+11. CONFIG PARA COLAR NA MÃO (se script falhar)
+-----------------------------------------------
+Chave          | Valor
+MATERIAIS_ID   | 1dxK-p-blCB8TBRAfCBRWhjXHNiYBpGExkFAQE9PQa4M
+EQUIPES_ID     | 1K1SzwTSSCri57o0U1A58EWT6cA4s0-XFjC5f5PyYR-A
+ABA_MISC       | BASE MICELANEAS
+ABA_ALMOX      | ALMOX SERIALIZADA
+ABA_EQUIPES    | Cópia de Página1
+GID_EQUIPES    | 1514437459
+
+
+12. ERROS DA IA ANTERIOR (autocrítica / lições)
+-----------------------------------------------
+  • Assumiu que usuária colou script correto após COPIAR-CODIGO-PAINEL.bat
+  • Não pediu screenshot do Apps Script cedo — perdeu horas em fixes de getRange
+    quando o problema era script Desconexão instalado
+  • Muitas iterações de fix CONFIG sem validar qual código estava no Google
+  • Não conseguiu editar planilha remota mas repetiu "rode Corrigir CONFIG"
+    sem diagnosticar script errado
+  • Setup HTML/cópia pode ter confundido com TCI-MontarPainel.gs do Desconexão
+    (mesma pasta Desktop tem PAINEL DESCONEXAO CLARO)
+  • Deveria ter pedido: "menu mostra TCI ou TCI Carga?" como primeiro teste
+
+
+13. PERGUNTAS EM ABERTO
+-----------------------
+  • Nome exato aba equipes na cópia (Cópia de Página1 vs Página4?)
+  • Técnicos DESATIVADO entram no painel? (script atual inclui todos da equipe)
+  • Forms encerradas: integrar no painel modems (consumo serial)?
+  • Planilha produção: quando migrar v2 para operação real?
+
+
+14. CONTATO / AMBIENTE
+----------------------
+  OS: Windows 10 | Chrome obrigatório para atalhos
+  Workspace: C:\Users\debor\OneDrive\Desktop\PROJETO IA
+  Usuária: editor da planilha TCI Carga, compartilhou links leitor
+
+================================================================================
+FIM DO HANDOFF — copie este arquivo inteiro para a próxima IA
+================================================================================

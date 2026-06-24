@@ -1,0 +1,65 @@
+================================================================================
+  PAINEL CARGA TCI — Miscelânia (ontem × hoje) + Modems
+  Atualizado: 24/06/2026
+================================================================================
+
+OBJETIVO
+--------
+  Painel miscelânia: ver se o técnico BAIXOU ou MANTEVE o estoque (ex.: drop
+  1000 m ontem → 950 hoje = consumiu 50 m).
+
+  Regras:
+    • Chave = TT (planilha EQUIPES = lista oficial dos técnicos TCI)
+    • Exclui ONT / FIBRA ONT (SERIAL) — só miscelânia
+    • Compara penúltimo × último snapshot diário
+
+PLANILHAS FONTE (cópias)
+------------------------
+  MATERIAIS  1dxK-p-blCB8TBRAfCBRWhjXHNiYBpGExkFAQE9PQa4M
+             aba BASE MICELANEAS + ALMOX SERIALIZADA
+
+  EQUIPES    1K1SzwTSSCri57o0U1A58EWT6cA4s0-XFjC5f5PyYR-A
+             aba com TT / nome (ajuste ABA_EQUIPES em CONFIG se precisar)
+
+COMO MONTAR (1ª vez)
+--------------------
+  1. Nova planilha Google em branco (ex.: PAINEL CARGA TCI v2)
+  2. Extensões → Apps Script
+  3. Cole TCI-MontarPainelCarga.gs → Salvar
+  4. Na planilha: F5 → menu TCI Carga → Montar estrutura inicial
+  5. Autorize o script (acesso às 3 planilhas cópia)
+
+ROTINA DIÁRIA (após colar BASE MICELANEAS ~10h)
+------------------------------------------------
+  1. TCI Carga → Registrar snapshot de hoje (misc)
+  2. TCI Carga → Atualizar painel miscelânia
+
+  Ou um clique: TCI Carga → Tudo (snapshot + painéis)
+
+  No 2º dia em diante o painel mostra:
+    Saldo ontem | Saldo hoje | Variação | Situação
+    BAIXOU = consumiu | MANTEVE = igual | SUBIU = recebeu mais
+
+  Seção RESUMO DROP no topo: total de drop por técnico (soma metros/unidades).
+
+PAINEL MODEMS
+-------------
+  Menu → Atualizar painel modems
+  Fonte: ALMOX SERIALIZADA, filtrado por TT da EQUIPES.
+
+ARQUIVOS
+--------
+  Rode: CRIAR-PAINEL-V2.bat  (tudo no Chrome)
+
+  TCI-MontarPainelCarga.gs   código Apps Script
+  CRIAR-PAINEL-V2.bat        planilha nova + setup Chrome
+  COPIAR-CODIGO-PAINEL.bat   setup Chrome (copiar código)
+  ABRIR-COPIAS-FONTE.bat     3 planilhas fonte no Chrome
+  DADOS\                      exports CSV (análise local)
+
+AUTOMATIZAR SNAPSHOT (opcional)
+-------------------------------
+  Apps Script → Acionadores → registrarSnapshotMisc
+  Diário 10:30 (depois da colagem da logística)
+
+================================================================================

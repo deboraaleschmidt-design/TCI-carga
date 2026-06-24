@@ -1,0 +1,56 @@
+================================================================================
+  CONFIG VAZIA — RESOLVER EM 2 MINUTOS
+  Planilha: https://docs.google.com/spreadsheets/d/1YAYbViLyvQoIEkeBizwOHSKMc9sxkE0Rl8L8bUGro9M/edit
+================================================================================
+
+IMPORTANTE: CONFIG vazia NÃO trava o painel.
+O script usa IDs padrão dentro do código. Pode ir direto:
+  TCI Carga → Tudo (snapshot + painéis)
+
+Mas para ver os IDs na planilha, use UMA opção abaixo:
+
+--------------------------------------------------------------------------------
+OPÇÃO 1 — COLAR NA MÃO (mais rápido, sem script)
+--------------------------------------------------------------------------------
+  Aba CONFIG — selecione A1, cole este bloco (Ctrl+V):
+
+Chave	Valor
+MATERIAIS_ID	1dxK-p-blCB8TBRAfCBRWhjXHNiYBpGExkFAQE9PQa4M
+EQUIPES_ID	1K1SzwTSSCri57o0U1A58EWT6cA4s0-XFjC5f5PyYR-A
+ABA_MISC	BASE MICELANEAS
+ABA_ALMOX	ALMOX SERIALIZADA
+ABA_EQUIPES	Cópia de Página1
+GID_EQUIPES	1514437459
+
+  (Ou rode ABRIR-CONFIG-CSV.bat e copie de lá)
+
+  Depois: TCI Carga → Tudo
+
+--------------------------------------------------------------------------------
+OPÇÃO 2 — SCRIPT NOVO (se menu não preenche)
+--------------------------------------------------------------------------------
+  1. Na planilha TCI Carga → Extensões → Apps Script
+     (tem que abrir DE DENTRO da planilha, não script.google.com solto)
+
+  2. Apague TODO o código antigo
+
+  3. COPIAR-CODIGO-PAINEL.bat → Copiar código completo → colar → Salvar
+
+  4. No Apps Script: dropdown função → testeGravarB2 → Executar
+     Autorize se pedir
+     Volte na CONFIG: B2 deve mostrar OK-TESTE-14:30
+
+  5. Se B2 preencheu → TCI Carga → Corrigir CONFIG vazio
+     Deve aparecer popup CONFIG OK
+
+  6. TCI Carga → Tudo
+
+--------------------------------------------------------------------------------
+SE NADA FUNCIONAR
+--------------------------------------------------------------------------------
+  Apps Script → Execuções (ícone relógio)
+  Veja se corrigirConfigVazio deu erro vermelho → mande print
+
+  Confirme: você é EDITOR (não só leitor) da planilha TCI Carga
+
+================================================================================

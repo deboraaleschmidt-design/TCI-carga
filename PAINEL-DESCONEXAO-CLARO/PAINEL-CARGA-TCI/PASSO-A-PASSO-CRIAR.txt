@@ -1,0 +1,61 @@
+================================================================================
+  CRIAR PAINEL CARGA TCI v2 — 3 minutos
+================================================================================
+
+  Rode: CRIAR-PAINEL-V2.bat
+
+  Eu (Cursor) NAO consigo criar na sua conta Google.
+  Este passo a passo deixa tudo pronto com 1 clique + colar codigo.
+
+--------------------------------------------------------------------------------
+PASSO 1 — Planilha nova
+--------------------------------------------------------------------------------
+  Abriu: https://docs.google.com/spreadsheets/create
+  Renomeie: PAINEL CARGA TCI v2
+
+--------------------------------------------------------------------------------
+PASSO 2 — Apps Script
+--------------------------------------------------------------------------------
+  Na planilha: Extensoes → Apps Script
+  Apague o codigo padrao (function myFunction...)
+  Abra TCI-MontarPainelCarga.gs (ja abriu no Bloco de notas)
+  Ctrl+A no .gs → Ctrl+C → Cole no Apps Script → Ctrl+S (Salvar)
+  Nome do projeto: Painel Carga TCI
+
+--------------------------------------------------------------------------------
+PASSO 3 — Autorizar
+--------------------------------------------------------------------------------
+  Volte na planilha → F5 (recarregar)
+  Menu TCI Carga → Montar estrutura inicial
+  Google pede permissao → Avancado → Ir para Painel Carga TCI → Permitir
+  (Precisa ler as copias MATERIAIS e EQUIPES)
+
+--------------------------------------------------------------------------------
+PASSO 4 — Conferir CONFIG
+--------------------------------------------------------------------------------
+  Aba CONFIG ja vem com os IDs das copias:
+    MATERIAIS  1dxK-p-blCB8TBRAfCBRWhjXHNiYBpGExkFAQE9PQa4M
+    EQUIPES    1K1SzwTSSCri57o0U1A58EWT6cA4s0-XFjC5f5PyYR-A
+
+  As 3 copias precisam estar: Qualquer pessoa com link → Leitor
+  (ou mesma conta Google da planilha do painel)
+
+  Se aba equipes nao carregar: ajuste ABA_EQUIPES em CONFIG
+  (hoje: Cópia de Página1)
+
+--------------------------------------------------------------------------------
+PASSO 5 — Primeiro uso (apos colar BASE MICELANEAS ~10h)
+--------------------------------------------------------------------------------
+  TCI Carga → Registrar snapshot de hoje (misc)
+  TCI Carga → Atualizar painel miscelânia
+  TCI Carga → Atualizar painel modems
+
+  Amanha: repita snapshot → painel mostra ONTEM x HOJE (drop baixou?)
+
+--------------------------------------------------------------------------------
+NAO colar script na copia MATERIAIS TCI
+--------------------------------------------------------------------------------
+  MATERIAIS = so fonte (colagem logistica)
+  PAINEL v2 = historico + paineis (esta planilha nova)
+
+================================================================================

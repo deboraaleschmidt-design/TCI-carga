@@ -1,0 +1,340 @@
+================================================================================
+  TEMA: PAINEL CARGA TCI — OBJETIVO COMPLETO DO PROJETO
+  Cliente/contexto: TCI (parceira Claro) — equipe de materiais em campo
+  Pasta: PROJETO IA\TEMAS\PAINEL-CARGA-TCI\
+  Atualizado: 24/06/2026
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. CONTEXTO — POR QUE ESTE TEMA EXISTE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A TCI opera técnicos em campo (instalação Claro). Cada técnico carrega:
+
+  • MODEMS / ONT serializados (equipamento com número de série)
+  • MISCELÂNIA (drop, conectores, plaquetas, esticadores, kits — sem serial
+    ou controle por quantidade/metragem)
+
+Hoje NINGUÉM tem uma visão única e atualizada de “quanto cada técnico TCI
+tem na mochila/carga”. O número só se obtém cruzando várias fontes, em horários
+diferentes, com trabalho manual:
+
+  1. Planilha MATERIAIS — equipe registra quem recebeu / para quem distribuiu
+  2. ALMOX SERIALIZADA — logística cola todo dia ~10h (foto oficial seriais)
+  3. BASE MICELANEAS — logística cola todo dia ~10h (estoque misc por TT)
+  4. ENCERRADAS — Forms que técnicos preenchem (equipamento usado no dia);
+     muitas vezes copiado/colado de outra planilha
+  5. WhatsApp “Movimentação de Material” — bipados entre técnicos (DE X PARA Y)
+  6. Planilha EQUIPES — cadastro oficial de quem é técnico TCI (TT, nome, área)
+
+DOR PRINCIPAL: depende de muitos fatores manuais → carga desatualizada → gestão
+cega sobre modems e miscelânia em campo.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. OBJETIVO PRINCIPAL (O QUE SE QUER NO FIM)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Criar um PAINEL GERENCIAL consolidado que responda, para cada TÉCNICO TCI
+(identificado por TT, lista oficial da planilha EQUIPES):
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  PAINEL A — MODEMS                                                       │
+  │  “Quais modems/seriais este técnico tem na carga agora?”                 │
+  │  Fonte principal: ALMOX SERIALIZADA (logística 10h)                      │
+  │  Filtro: só TT da planilha EQUIPES (~44 técnicos)                        │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  PAINEL B — MISCELÂNIA                                                    │
+  │  “Quanto de drop, conectores etc. ele tem — e CONSUMIU ou manteve?”        │
+  │  Exemplo: ontem 1000 m drop → hoje 950 m → BAIXOU 50 m (consumiu)        │
+  │  Fonte: BASE MICELANEAS + histórico diário (snapshot)                    │
+  │  Regras: excluir ONT; chave TT; só técnicos EQUIPES                      │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+OBJETIVO SECUNDÁRIO (fases futuras, ainda não implementadas):
+
+  • Automatizar bipados do WhatsApp → planilha (formato DE ANTONIO PARA
+    MARCELO TT823460 + lista de seriais)
+  • Eliminar copy/paste do Forms encerradas
+  • Conferir divergências vs Almox e vs movimentos BASE TCI
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. QUEM USA E PARA QUÊ (VISÃO GERENCIAL)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  PÚBLICO: gestão/coordenação TCI (não o técnico no Forms)
+
+  USO ESPERADO:
+    • Ver carga de modems por técnico antes de distribuir mais material
+    • Ver se miscelânia (especialmente DROP) está sendo consumida no dia
+    • Identificar técnico com estoque parado (MANTEVE vários dias)
+    • Identificar quem recebeu mais (SUBIU) vs quem baixou (consumo real)
+    • Base para cobrança, redistribuição e alinhamento com logística Claro
+
+  NÃO É OBJETIVO DESTE TEMA:
+    • Painel financeiro Desconexão Claro (outro script: TCI-MontarPainel.gs)
+    • Disparo WhatsApp safra/desconexão (PROJETO IA\02-TCI-AUTOMACAO-WHATSAPP)
+    • Faturamento Claro por cidade
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. MAPA DE PLANILHAS — ACESSOS E PAPÉIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌──────────────────┬────────────────────────────────────────────────────────────┐
+│ PAPEL            │ DETALHE                                                    │
+├──────────────────┼────────────────────────────────────────────────────────────┤
+│ PRODUÇÃO         │ Original online — NÃO MEXER neste projeto                  │
+│ (referência)     │ ID: 1W1K7OzbZejmSbEUnQxJ9u43phV0sHYNWkeW3KIbv0vM           │
+├──────────────────┼────────────────────────────────────────────────────────────┤
+│ CÓPIA MATERIAIS  │ Operacional de teste — colagem diária logística           │
+│                  │ ID: 1dxK-p-blCB8TBRAfCBRWhjXHNiYBpGExkFAQE9PQa4M           │
+│                  │ URL: .../d/1dxK-p-blCB8TBRAfCBRWhjXHNiYBpGExkFAQE9PQa4M/   │
+│                  │ Abas críticas:                                             │
+│                  │   BASE TCI (~1916 movimentos manuais equipe)               │
+│                  │   ALMOX SERIALIZADA (~22k seriais)                         │
+│                  │   BASE MICELANEAS (~8800 linhas misc)                      │
+│                  │   ENCERRADAS, DIN TÉCNICO TCI, DINAMICA MISC (auxiliares)  │
+├──────────────────┼────────────────────────────────────────────────────────────┤
+│ CÓPIA EQUIPES    │ Lista oficial técnicos TCI — FILTRO dos painéis            │
+│                  │ ID: 1K1SzwTSSCri57o0U1A58EWT6cA4s0-XFjC5f5PyYR-A           │
+│                  │ ~44 técnicos: NOME, TT, TR, AREA, ATIVO/DESATIVADO         │
+│                  │ Aba: Cópia de Página1 (gid 1514437459)                     │
+├──────────────────┼────────────────────────────────────────────────────────────┤
+│ CÓPIA FORMS      │ Encerradas instalação (~13.460 respostas)                  │
+│                  │ ID: 1ixrY1sw9XovlNcLIcSX2c6-Ij-Q4qyDbHhUOeH6SWII           │
+│                  │ Serial instalado, técnico, protocolo — consumo dia         │
+├──────────────────┼────────────────────────────────────────────────────────────┤
+│ PAINEL v2        │ ONDE ficam painéis + script Apps Script                    │
+│ (TCI Carga)      │ ID: 1YAYbViLyvQoIEkeBizwOHSKMc9sxkE0Rl8L8bUGro9M           │
+│                  │ URL: .../d/1YAYbViLyvQoIEkeBizwOHSKMc9sxkE0Rl8L8bUGro9M/   │
+│                  │ Apps Script ID: 17PsXu5YCUvJlHjkDIXAWghvwvqTD85Ug...       │
+└──────────────────┴────────────────────────────────────────────────────────────┘
+
+PERMISSÕES NECESSÁRIAS:
+  • Conta que roda o Apps Script = EDITOR na planilha TCI Carga
+  • Mesma conta = LEITOR (mínimo) nas 3 cópias fonte
+  • Compartilhar “qualquer pessoa com link” só para IA ler export (opcional)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. FLUXO DE DADOS (COMO AS PEÇAS SE CONECTAM)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                    LOGÍSTICA (~10h)
+                           │
+           ┌───────────────┴───────────────┐
+           ▼                               ▼
+   ALMOX SERIALIZADA              BASE MICELANEAS
+   (quem tem qual serial)         (saldo misc por TT)
+           │                               │
+           │         EQUIPES (filtro TT)   │
+           └───────────────┬───────────────┘
+                           ▼
+              ┌────────────────────────┐
+              │  PLANILHA TCI Carga    │
+              │  Apps Script           │
+              │  TCI-MontarPainelCarga │
+              └────────────────────────┘
+                     │            │
+         ┌───────────┘            └───────────┐
+         ▼                                      ▼
+  PAINEL MODEMS                      PAINEL MISCELANIA
+  (seriais/TT hoje)                  (HISTORICO → ontem×hoje)
+
+  PARALELO (ainda manual / futuro):
+    BASE TCI ──► auditoria movimentos internos
+    Forms ENCERRADAS ──► consumo serial dia
+    WhatsApp bipados ──► transferências entre técnicos (n8n futuro)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. VISUALIZAÇÃO — O QUE CADA PAINEL MOSTRA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6.1 ABA: PAINEL MODEMS
+──────────────────────
+  Título: Carga por TT — fonte Almox serializados
+
+  Colunas:
+    TT | Técnico | Área | Qtd modems | Seriais (lista) | Tipo material | Status equipe
+
+  Ordenação: maior quantidade primeiro
+  Escopo: apenas TT presentes na planilha EQUIPES
+  Atualização: menu TCI Carga → Atualizar painel modems (ou Tudo)
+  Pré-requisito: ALMOX colado na cópia MATERIAIS no dia
+
+6.2 ABA: PAINEL MISCELANIA
+──────────────────────────
+  Título: Ontem × Hoje — por TT (sem ONT)
+
+  BLOCO 1 — RESUMO DROP (topo)
+    TT | Técnico | DROP ontem | DROP hoje | Variação | Situação | Consumiu? | Obs
+    Situações coloridas:
+      BAIXOU (vermelho claro) = consumiu
+      MANTEVE (amarelo) = igual
+      SUBIU / ENTROU (verde) = recebeu mais
+      ZEROU = acabou estoque
+
+  BLOCO 2 — DETALHE POR MATERIAL
+    TT | Técnico | Área | Material | Grupo | DROP? |
+    Saldo ontem | Saldo hoje | Variação | Situação
+
+  1º dia de snapshot: mostra saldo hoje; comparação “AGUARDANDO 2º DIA”
+  2º dia em diante: penúltimo snapshot vs último snapshot
+
+6.3 ABAS DE SUPORTE (mesma planilha TCI Carga)
+──────────────────────────────────────────────
+  INÍCIO      — passo a passo para operador
+  CONFIG      — IDs das planilhas fonte (Chave/Valor)
+  HISTORICO MISC — uma linha por item/TT/dia (snapshot acumulado)
+  RESUMO DROP — reservada/auxiliar
+
+6.4 MENU TCI Carga (planilha)
+─────────────────────────────
+  Montar estrutura inicial
+  Corrigir CONFIG vazio
+  TESTE: gravar B2
+  Registrar snapshot de hoje (misc)
+  Atualizar painel miscelânia
+  Atualizar painel modems
+  Tudo (snapshot + painéis)  ← rotina diária recomendada
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. REGRAS DE NEGÓCIO (EMBASAMENTO)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  IDENTIFICAÇÃO
+    • Chave única do técnico = TT (ex.: TT831526, TT823460)
+    • Lista oficial = planilha EQUIPES (não todos do Almox — são ~246 no almox,
+      só ~44 são TCI da equipe)
+    • Nomes no WhatsApp/Forms podem divergir (ANTONIO vs ANTONIO NUNES...) —
+      TT é o cruzamento confiável
+
+  MISCELÂNIA — O QUE ENTRA E O QUE SAI
+    ENTRA: itens da BASE MICELANEAS com saldo > 0, TT na equipe
+    EXCLUI: Grupo Material = ONT; subsegmento FIBRA ONT (SERIAL); nomes ONT*
+    MOTIVO: miscelânia e modem são painéis separados; BASE MISC mistura ONT
+
+  MODEMS — FONTE DA VERDADE
+    • Almox serializados = foto logística (melhor que BASE TCI para “carga atual”)
+    • BASE TCI = movimentos internos (transferência, reversa, pack) — auditoria
+
+  COMPARAÇÃO DIÁRIA (misc)
+    • Após colar BASE MICELANEAS (~10h): registrar snapshot
+    • Histórico guarda: data, TT, material, saldo
+    • Painel compara últimos 2 dias de snapshot
+    • DROP agregado = soma saldos de linhas cujo material/agregador contém "DROP"
+
+  WHATSAPP (formato conhecido — automação futura)
+    DE ANTONIO PARA MARCELO NUNES TT823460
+    ALCLFBA787D
+    ZTEGDDBA0EC7
+    → transferência real entre técnicos; hoje NÃO entra no painel
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. ARQUITETURA TÉCNICA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  PRINCÍPIO: planilha operacional intacta; painel v2 só LÊ cópias via Apps Script
+
+  Script correto (local):
+    PROJETO IA\TEMAS\PAINEL-CARGA-TCI\TCI-MontarPainelCarga.gs
+
+  Script ERRADO (não usar nesta planilha):
+    PAINEL DESCONEXAO CLARO\TCI-MontarPainel.gs
+    (menu "TCI", Faturar Claro — foi colado por engano na TCI Carga)
+
+  Leitura de dados:
+    SpreadsheetApp.openById(MATERIAIS_ID) → aba BASE MICELANEAS / ALMOX
+    SpreadsheetApp.openById(EQUIPES_ID) → lista TT
+
+  Persistência:
+    HISTORICO MISC na própria planilha TCI Carga (snapshots diários)
+
+  Opcional futuro:
+    Acionador 10:30 → registrarSnapshotMisc
+    n8n + WAHA → WhatsApp → Google Sheets
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. ACESSOS LOCAIS (PC — ÁREA DE TRABALHO / PROJETO IA)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Pasta principal:
+    C:\Users\debor\OneDrive\Desktop\PROJETO IA\TEMAS\PAINEL-CARGA-TCI\
+
+  Arquivos-chave:
+    TCI-MontarPainelCarga.gs     código Apps Script
+    OBJETIVO-COMPLETO-DO-TEMA.txt  este documento
+    HANDOFF-PARA-OUTRA-IA.txt     handoff técnico
+    CONFIG-COLAR.csv               IDs para colar na CONFIG
+    DADOS\                         exports CSV (análise offline)
+
+  Atalhos (abrir no Google Chrome):
+    ABRIR-TCI-CARGA.bat            → planilha painel v2
+    ABRIR-COPIAS-FONTE.bat         → 3 planilhas cópia
+    COPIAR-CODIGO-PAINEL.bat       → setup HTML + copiar script
+    CRIAR-PAINEL-V2.bat            → nova planilha + setup
+    CORRIGIR-CONFIG-VAZIA.bat      → planilha + ajuda CONFIG
+
+  Regra usuária: TODA abertura de projeto TCI = Chrome (não Edge/Notepad)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. ROTINA OPERACIONAL DIÁRIA (QUANDO ESTIVER FUNCIONANDO)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  MANHÃ (~após 10h, logística colou dados na cópia MATERIAIS):
+    1. Confirmar BASE MICELANEAS e ALMOX atualizados na cópia
+    2. Abrir TCI Carga (ABRIR-TCI-CARGA.bat)
+    3. Menu TCI Carga → Tudo (snapshot + painéis)
+    4. Revisar PAINEL MISCELANIA → RESUMO DROP (quem baixou?)
+    5. Revisar PAINEL MODEMS → seriais por técnico
+
+  A PARTIR DO 2º DIA:
+    Painel misc mostra ontem × hoje automaticamente
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. ESTADO ATUAL DO PROJETO (24/06/2026)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  FEITO:
+    ✓ Análise completa das 3 planilhas cópia (exports em DADOS\)
+    ✓ Arquitetura e regras de negócio definidas
+    ✓ Script TCI-MontarPainelCarga.gs escrito localmente
+    ✓ Planilha TCI Carga criada no Google
+    ✓ Atalhos Chrome no PC
+    ✓ Documentação handoff
+
+  PENDENTE / BLOQUEADO:
+    ✗ Apps Script na TCI Carga ainda tinha código DESCONEXÃO (não Carga)
+    ✗ CONFIG vazia; painéis provavelmente não gerados
+    ✗ Usuária precisa colar script CORRETO e autorizar execução
+    ✗ WhatsApp → planilha não implementado
+    ✗ Integração Forms encerradas automática não implementada
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. CRITÉRIO DE SUCESSO (DEFINIÇÃO DE “PRONTO”)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [ ] Menu na planilha = "TCI Carga" (não "TCI")
+  [ ] PAINEL MODEMS lista ~44 técnicos com seriais do Almox do dia
+  [ ] PAINEL MISCELANIA mostra RESUMO DROP + detalhe materiais
+  [ ] No 2º dia, técnico com drop 1000→950 aparece BAIXOU -50
+  [ ] ONT não aparece no painel misc
+  [ ] Operador roda "Tudo" 1x/dia após colagem 10h sem copy/paste manual
+  [ ] (Futuro) WhatsApp alimenta movimentos entre técnicos
+
+
+================================================================================
+  FIM — DOCUMENTO DE REFERÊNCIA DO TEMA PAINEL CARGA TCI
+================================================================================
