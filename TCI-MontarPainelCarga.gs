@@ -714,47 +714,49 @@ function montarPainelModems() {
   const equipe = carregarEquipeTci_(cfg);
   const modems = lerModemsAlmox_(cfg, equipe.porTt);
   const forms  = lerFormsInstalados_(cfg, equipe);
+  // Serials baixados HOJE no Forms — usados para abater da carga (serial = equipamento único)
+  const instaladosHoje = coletarSeriaisInstalados_(forms);
 
   const nome = 'PAINEL MODEMS';
   let old = ss.getSheetByName(nome);
   if (old) ss.deleteSheet(old);
   const sh = ss.insertSheet(nome, 0);
 
-  // 8 colunas: TT | Técnico | Área | Velocidade/Descrição | Qtd por velocidade | Total em carga | Inst. hoje (Forms) | Status
-  titulo_(sh, 'A1:H1', 'PAINEL MODEMS TCI — CARGA POR TT (velocidade × quantidade)');
+  // 8 colunas: TT | Técnico | Área | Velocidade/Descrição | Qtd em carga (líquida) | Total em carga | Baixados hoje (Forms) | Status
+  titulo_(sh, 'A1:H1', 'PAINEL MODEMS TCI — CARGA POR TT (serial baixado no Forms abate da carga)');
   sh.getRange('A2:H2').merge()
-    .setValue('Fonte: ALMOX SERIALIZADA + Forms instalação · Somente TT da planilha EQUIPES · Atualizado: ' +
+    .setValue('ALMOX SERIALIZADA menos os serials já baixados no Forms hoje · Somente TT da EQUIPES · Atualizado: ' +
       Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'))
     .setFontStyle('italic').setHorizontalAlignment('center').setFontSize(10);
 
   cabecalhoTabela_(sh, 'A4:H4', [
-    'TT', 'Técnico', 'Área', 'Velocidade / Descrição', 'Qtd por velocidade',
-    'Total em carga', 'Inst. hoje (Forms)', 'Status'
+    'TT', 'Técnico', 'Área', 'Velocidade / Descrição', 'Qtd em carga (líquida)',
+    'Total em carga', 'Baixados hoje (Forms)', 'Status'
   ]);
 
-  // Agrupa por TT e por velocidade (descrição do material)
+  // Agrupa por TT e por velocidade — abatendo serial já instalado no Forms
   const porTt = {};
   modems.forEach(function (m) {
-    if (!porTt[m.tt]) porTt[m.tt] = { velocidades: {}, total: 0 };
+    if (!porTt[m.tt]) porTt[m.tt] = { velocidades: {}, total: 0, baixados: 0 };
+    if (m.serial && instaladosHoje[m.serial]) {
+      // Serial já baixado no Forms → sai da carga (coluna E reduz automaticamente)
+      porTt[m.tt].baixados += 1;
+      return;
+    }
     porTt[m.tt].velocidades[m.velocidade] = (porTt[m.tt].velocidades[m.velocidade] || 0) + 1;
     porTt[m.tt].total += 1;
   });
 
   const linhas = equipe.lista.map(function (tec) {
     const almox = porTt[tec.tt];
-    const form  = forms[tec.tt];
 
     const totalCarga = almox ? almox.total : 0;
-    // Velocidades e quantidades em colunas separadas (multiline em cada célula correspondente)
+    const baixados   = almox ? almox.baixados : 0;
     const velocOrdenadas = almox ? Object.keys(almox.velocidades).sort() : [];
     const colVeloc = velocOrdenadas.map(function (v) { return v || '(sem descrição)'; }).join('\n');
     const colQtd   = velocOrdenadas.map(function (v) { return almox.velocidades[v]; }).join('\n');
 
-    const qtdForms = form ? form.instalacoes.reduce(function (acc, ins) {
-      return acc + ins.seriais.length;
-    }, 0) : 0;
-
-    return [tec.tt, tec.nome, tec.area, colVeloc, colQtd, totalCarga, qtdForms || '', tec.status];
+    return [tec.tt, tec.nome, tec.area, colVeloc, colQtd, totalCarga, baixados || '', tec.status];
   });
 
   linhas.sort(function (a, b) { return Number(b[5]) - Number(a[5]); });
@@ -766,7 +768,7 @@ function montarPainelModems() {
     rangeLinhas_(sh, 5, 5, linhas.length, 1).setWrap(true).setHorizontalAlignment('center');
   }
 
-  [90, 220, 80, 280, 100, 100, 110, 90].forEach(function (w, i) {
+  [90, 220, 80, 280, 110, 100, 130, 90].forEach(function (w, i) {
     sh.setColumnWidth(i + 1, w);
   });
   sh.setFrozenRows(4);
@@ -774,11 +776,18 @@ function montarPainelModems() {
   ss.toast('Painel modems atualizado.', 'TCI Carga', 8);
 }
 
-function ehModemReal_(material, grupo) {
-  const t = [material, grupo].join(' ').toUpperCase();
-  // Inclui apenas modems reais; cabos, drops, conectores e outros são miscelânia
-  if (t.indexOf('MODEM') >= 0) return true;
-  return false;
+/** Conjunto de serials baixados hoje no Forms (qualquer técnico). serial → true */
+function coletarSeriaisInstalados_(formsPorTt) {
+  const set = {};
+  Object.keys(formsPorTt).forEach(function (tt) {
+    formsPorTt[tt].instalacoes.forEach(function (ins) {
+      ins.seriais.forEach(function (s) {
+        const v = String(s || '').trim().toUpperCase();
+        if (v) set[v] = true;
+      });
+    });
+  });
+  return set;
 }
 
 function lerModemsAlmox_(cfg, porTt) {
@@ -792,19 +801,19 @@ function lerModemsAlmox_(cfg, porTt) {
   const dados = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
   const header = dados[0].map(normalizarTexto_);
 
-  const ixTt    = indiceColuna_(header, ['f/tt', 'gestech', 'tt']);
-  const ixVeloc = indiceColuna_(header, ['velocidade', 'plano', 'texto breve material', 'descricao material', 'material']);
-  const ixGrupo = indiceColuna_(header, ['grupo material', 'grupo']);
+  const ixTt     = indiceColuna_(header, ['f/tt', 'gestech', 'tt']);
+  const ixVeloc  = indiceColuna_(header, ['velocidade', 'plano', 'texto breve material', 'descricao material', 'material']);
+  const ixSerial = indiceColuna_(header, ['serial', 'numero de serie', 'serie']);
 
   const out = [];
   for (let i = 1; i < dados.length; i++) {
     const tt = normalizarTt_(dados[i][ixTt]);
     if (!tt || !porTt[tt]) continue;
+    const serial = ixSerial >= 0 ? String(dados[i][ixSerial] || '').trim().toUpperCase() : '';
+    // ALMOX SERIALIZADA = equipamento com serial. Sem serial (ex.: cabo) não entra no painel modems.
+    if (!serial) continue;
     const velocidade = ixVeloc >= 0 ? String(dados[i][ixVeloc] || '').trim() : '';
-    const grupo      = ixGrupo >= 0 ? String(dados[i][ixGrupo] || '').trim() : '';
-    // Somente modems reais — cabos e outros materiais ficam na miscelânia
-    if (!ehModemReal_(velocidade, grupo)) continue;
-    out.push({ tt: tt, nome: porTt[tt].nome, velocidade: velocidade });
+    out.push({ tt: tt, nome: porTt[tt].nome, velocidade: velocidade, serial: serial });
   }
   return out;
 }
