@@ -27,10 +27,159 @@ function onOpen() {
     .addSeparator()
     .addItem('Tudo (snapshot + painéis)', 'atualizarTudo')
     .addSeparator()
+    .addItem('Mostrar link gerencial (Web App)', 'mostrarLinkWebApp')
+    .addSeparator()
     .addItem('Ativar atualização automática diária (10h30)', 'ativarGatilhoDiario')
     .addItem('Ativar atualização frequente (a cada 15 min)', 'ativarAtualizacaoFrequente')
     .addItem('Desativar atualização automática', 'desativarGatilhoDiario')
     .addToUi();
+}
+
+/**
+ * WEB APP — visão gerencial em HTML, com URL fixa.
+ * Publicar: Implantar → Nova implantação → Tipo "App da Web" → Executar como "eu" → Acesso conforme necessidade.
+ * A URL /exec gerada é permanente e mostra os painéis sempre atualizados ao abrir.
+ */
+function doGet() {
+  const html = construirHtmlGerencial_();
+  return HtmlService.createHtmlOutput(html)
+    .setTitle('Painel Carga TCI')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/** Mostra a URL do Web App (se já publicado) com instruções. */
+function mostrarLinkWebApp() {
+  const ui = SpreadsheetApp.getUi();
+  let url = '';
+  try { url = ScriptApp.getService().getUrl() || ''; } catch (e) { url = ''; }
+  if (url) {
+    ui.alert('Link gerencial (Web App)',
+      'Abra ou compartilhe este link — mostra os painéis sempre atualizados:\n\n' + url +
+      '\n\nDica: salve nos favoritos ou envie no grupo da equipe.',
+      ui.ButtonSet.OK);
+  } else {
+    ui.alert('Web App ainda não publicado',
+      'Para gerar o link gerencial:\n\n' +
+      '1. Menu Extensões → Apps Script\n' +
+      '2. Botão "Implantar" → "Nova implantação"\n' +
+      '3. Tipo: "App da Web"\n' +
+      '4. Executar como: "Eu"\n' +
+      '5. Quem tem acesso: escolha (ex.: qualquer pessoa com o link)\n' +
+      '6. Implantar → copie a URL /exec\n\n' +
+      'Depois volte aqui em "Mostrar link gerencial" que ele aparece pronto.',
+      ui.ButtonSet.OK);
+  }
+}
+
+function construirHtmlGerencial_() {
+  const cfg    = lerConfig_();
+  const equipe = carregarEquipeTci_(cfg);
+  const tz     = Session.getScriptTimeZone();
+  const hoje   = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const agora  = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm');
+
+  // ── MODEMS ──
+  const modems = lerModemsAlmox_(cfg, equipe.porTt);
+  const forms  = lerFormsInstalados_(cfg, equipe);
+  const encerradosTotal = coletarSeriaisInstalados_(forms, null);
+
+  const porTt = {};
+  modems.forEach(function (m) {
+    if (!porTt[m.tt]) porTt[m.tt] = { velocidades: {}, total: 0 };
+    if (m.serial && encerradosTotal[m.serial]) return;
+    porTt[m.tt].velocidades[m.velocidade] = (porTt[m.tt].velocidades[m.velocidade] || 0) + 1;
+    porTt[m.tt].total += 1;
+  });
+
+  const modemRows = equipe.lista.map(function (tec) {
+    const almox = porTt[tec.tt];
+    const velocs = almox ? Object.keys(almox.velocidades).sort() : [];
+    const r = resumirFormsTt_(forms[tec.tt], hoje, tz);
+    const farol = farolEncerramento_(r.diasDesde);
+    return {
+      tt: tec.tt, nome: tec.nome, area: tec.area || '',
+      velocHtml: velocs.map(function (v) { return esc_(v || '(sem descrição)'); }).join('<br>') || '—',
+      qtdHtml:   velocs.map(function (v) { return almox.velocidades[v]; }).join('<br>') || '0',
+      total: almox ? almox.total : 0,
+      encHoje: r.encerradosHoje, encTotal: r.totalEncerrados,
+      ultimo: farol.txt, status: farol.status, cor: farol.cor, ordem: ordemStatus_(farol.status)
+    };
+  }).sort(function (a, b) { return b.ordem - a.ordem || b.total - a.total; });
+
+  let modemTbody = '';
+  modemRows.forEach(function (r) {
+    modemTbody +=
+      '<tr><td class="tt">' + esc_(r.tt) + '</td><td>' + esc_(r.nome) + '</td><td>' + esc_(r.area) + '</td>' +
+      '<td>' + r.velocHtml + '</td><td class="ctr">' + r.qtdHtml + '</td>' +
+      '<td class="num"><b>' + r.total + '</b></td>' +
+      '<td class="num">' + (r.encHoje || '') + '</td><td class="num">' + (r.encTotal || '') + '</td>' +
+      '<td class="ctr" style="background:' + r.cor + '">' + esc_(r.ultimo) + '</td>' +
+      '<td class="ctr" style="background:' + r.cor + '">' + esc_(r.status) + '</td></tr>';
+  });
+
+  // ── MISCELÂNIA ──
+  let miscResumo = '';
+  const ss = obterPlanilha_();
+  const shHist = ss.getSheetByName('HISTORICO MISC');
+  if (shHist && shHist.getLastRow() >= 2) {
+    const snapshots = lerSnapshots_(shHist);
+    const dataHoje  = snapshots.datas[snapshots.datas.length - 1];
+    const dataOntem = snapshots.datas.length >= 2 ? snapshots.datas[snapshots.datas.length - 2] : null;
+
+    let ths = '<th>TT</th><th>Técnico</th><th>Área</th>';
+    CATS_MISC_.forEach(function (c) { ths += '<th>' + esc_(c.label) + '</th>'; });
+
+    let rows = '';
+    Object.keys(equipe.porTt).sort().forEach(function (tt) {
+      const tec = equipe.porTt[tt];
+      const h = somarCatsMiscTecnico_(snapshots, dataHoje,  tt);
+      const o = somarCatsMiscTecnico_(snapshots, dataOntem, tt);
+      if (!CATS_MISC_.some(function (c) { return h[c.key] > 0 || o[c.key] > 0; })) return;
+      let tds = '<td class="tt">' + esc_(tt) + '</td><td>' + esc_(tec.nome) + '</td><td>' + esc_(tec.area || '') + '</td>';
+      CATS_MISC_.forEach(function (c) {
+        const vh = h[c.key] || 0, vo = o[c.key] || 0;
+        const cor = !dataOntem ? '' : (vh !== vo ? '#e8f5e9' : '#ffcdd2');
+        tds += '<td class="num" style="background:' + cor + '">' + vh.toLocaleString('pt-BR') + '</td>';
+      });
+      rows += '<tr>' + tds + '</tr>';
+    });
+    miscResumo =
+      '<div class="card"><div class="titulo">PAINEL MISCELÂNIA TCI — CARGA ATUAL POR TÉCNICO</div>' +
+      '<div class="sub">Saldo col ' + esc_(cfg.COL_SALDO_MISC) + ' · ' +
+      (dataOntem ? ('comparação ' + dataOntem + ' → ' + dataHoje) : ('1º dia: ' + dataHoje)) +
+      ' · 🟢 movimentou · 🔴 parado</div>' +
+      '<table><thead><tr>' + ths + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  } else {
+    miscResumo = '<div class="card"><div class="titulo">PAINEL MISCELÂNIA</div>' +
+      '<div class="sub">Sem histórico ainda — rode "Atualizar painel miscelânia" na planilha.</div></div>';
+  }
+
+  return '<!DOCTYPE html><html lang="pt-br"><head><meta charset="utf-8"><style>' +
+    'body{font-family:Arial,Helvetica,sans-serif;background:#f1f3f4;margin:0;padding:16px;}' +
+    '.card{background:#fff;border:1px solid #c0c0c0;box-shadow:0 2px 8px rgba(0,0,0,.12);margin-bottom:24px;border-radius:6px;overflow:hidden;}' +
+    '.titulo{background:#1565c0;color:#fff;font-weight:bold;font-size:15px;text-align:center;padding:11px;}' +
+    '.sub{font-style:italic;text-align:center;color:#555;font-size:11px;padding:6px;background:#fafafa;}' +
+    'table{border-collapse:collapse;width:100%;font-size:12px;}' +
+    'td,th{border:1px solid #d8d8d8;padding:6px 8px;}' +
+    'thead th{background:#e3f2fd;font-weight:bold;text-align:center;position:sticky;top:0;}' +
+    '.tt{color:#1565c0;font-weight:bold;}.num{text-align:right;}.ctr{text-align:center;}' +
+    'h1{font-size:18px;color:#333;}' +
+    '</style></head><body>' +
+    '<h1>📊 Painel Carga TCI <small style="font-weight:normal;color:#888;font-size:12px;">— atualizado ' + esc_(agora) + '</small></h1>' +
+    '<div class="card"><div class="titulo">PAINEL MODEMS TCI — CARGA LÍQUIDA POR TT (ONT · MESH · MODEM)</div>' +
+    '<div class="sub">Carga = ALMOX − todos os seriais já encerrados no Forms · 🟢 encerrou hoje · 🟡 1 dia · 🟠 2 dias · 🔴 3+ dias</div>' +
+    '<table><thead><tr><th>TT</th><th>Técnico</th><th>Área</th><th>Velocidade / Descrição</th>' +
+    '<th>Qtd<br>(linha)</th><th>Total<br>carga</th><th>Enc.<br>hoje</th><th>Total<br>enc.</th>' +
+    '<th>Último<br>encerram.</th><th>Status</th></tr></thead><tbody>' + modemTbody + '</tbody></table></div>' +
+    miscResumo +
+    '<p style="font-size:11px;color:#777;">Visão gerencial · dados batem com os painéis da planilha · recarregue a página para atualizar.</p>' +
+    '</body></html>';
+}
+
+/** Escapa texto para HTML. */
+function esc_(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /**
@@ -103,7 +252,8 @@ var CFG_PADRAO_ = {
   ABA_ALMOX:    'ALMOX SERIALIZADA',
   ABA_EQUIPES:  'FERNANDA TT TR TELEFONE',
   GID_EQUIPES:  '1514437459',
-  ABA_FORMS:    'Respostas ao formulário 1'
+  ABA_FORMS:    'Respostas ao formulário 1',
+  COL_SALDO_MISC: 'Y'   // coluna do saldo atual na BASE MICELANEAS (após atualização diária)
 };
 
 function lerConfig_() {
@@ -111,7 +261,7 @@ function lerConfig_() {
   const sh = ss.getSheetByName('CONFIG');
   if (!sh) return Object.assign({}, CFG_PADRAO_);
 
-  const vals = sh.getRange('A2:B14').getValues();
+  const vals = sh.getRange('A2:B20').getValues();
   const map = {};
   vals.forEach(function (row) {
     if (row[0]) map[String(row[0]).trim()] = String(row[1] || '').trim();
@@ -126,8 +276,18 @@ function lerConfig_() {
     ABA_ALMOX:    map.ABA_ALMOX    || CFG_PADRAO_.ABA_ALMOX,
     ABA_EQUIPES:  map.ABA_EQUIPES  || CFG_PADRAO_.ABA_EQUIPES,
     GID_EQUIPES:  map.GID_EQUIPES  || CFG_PADRAO_.GID_EQUIPES,
-    ABA_FORMS:    map.ABA_FORMS    || CFG_PADRAO_.ABA_FORMS
+    ABA_FORMS:    map.ABA_FORMS    || CFG_PADRAO_.ABA_FORMS,
+    COL_SALDO_MISC: map.COL_SALDO_MISC || CFG_PADRAO_.COL_SALDO_MISC
   };
+}
+
+/** Converte letra de coluna (ex.: 'Y') em índice 0-based (Y → 24). Vazio → -1. */
+function letraColParaIndice_(letra) {
+  const s = String(letra || '').trim().toUpperCase();
+  if (!/^[A-Z]+$/.test(s)) return -1;
+  let n = 0;
+  for (let i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+  return n - 1;
 }
 
 /** ID de planilha Google: só letras, dígitos, _ e -, e tamanho >= 30. */
@@ -245,6 +405,7 @@ function preencherConfig_(sh) {
     ['ABA_EQUIPES',  CFG_PADRAO_.ABA_EQUIPES],
     ['GID_EQUIPES',  CFG_PADRAO_.GID_EQUIPES],
     ['ABA_FORMS',    CFG_PADRAO_.ABA_FORMS],
+    ['COL_SALDO_MISC', CFG_PADRAO_.COL_SALDO_MISC],
     ['', ''],
     ['Regra ONT',    'Excluir Grupo=ONT ou subsegmento FIBRA ONT (SERIAL)'],
     ['Técnicos',     'Somente TT listados na planilha EQUIPES (FERNANDA TT TR TELEFONE)'],
@@ -309,6 +470,7 @@ function carregarEquipeTci_(cfg) {
 
   const porTt = {};
   const porTr = {};
+  const porNome = {};
   const lista = [];
 
   for (let i = 1; i < dados.length; i++) {
@@ -326,9 +488,16 @@ function carregarEquipeTci_(cfg) {
     };
     porTt[tt] = item;
     if (tr) porTr[tr] = item;
+    const chaveNome = chaveNome_(nome);
+    if (chaveNome) porNome[chaveNome] = item;
     lista.push(item);
   }
-  return { lista: lista, porTt: porTt, porTr: porTr };
+  return { lista: lista, porTt: porTt, porTr: porTr, porNome: porNome };
+}
+
+/** Chave de nome normalizada (sem acento, maiúsculo, espaços colapsados) para fallback de cruzamento. */
+function chaveNome_(v) {
+  return normalizarTexto_(v).replace(/\s+/g, ' ').trim();
 }
 
 // ─── Snapshot miscelânea ─────────────────────────────────────────────────────
@@ -399,6 +568,11 @@ function lerMiscFiltrada_(cfg, porTt) {
     segmento: indiceColuna_(header, ['segmento']),
     obs:      indiceColuna_(header, ['observacao', 'observacoes', 'obs'])
   };
+
+  // Saldo: usa a coluna fixa Y (saldo atual após atualização diária da base).
+  // Se a coluna Y não existir/estiver fora do range, cai no detector por header.
+  const ixSaldoY = letraColParaIndice_(cfg.COL_SALDO_MISC);
+  if (ixSaldoY >= 0 && ixSaldoY < dados[0].length) ix.saldo = ixSaldoY;
 
   const mapa = {};
 
@@ -488,6 +662,30 @@ function categoriaChave_(material, agregador) {
   return null;
 }
 
+/**
+ * Categoria simplificada da miscelânia (painel novo).
+ * DROP = só descrição com DROP (peças) + rolo 500m. CABO genérico sem DROP é ignorado.
+ * Retorna null se não for categoria acompanhada.
+ */
+function categoriaMisc_(material, agregador, grupo) {
+  const t = [material, agregador, grupo].join(' ').toUpperCase();
+  if (t.indexOf('CONECTOR') >= 0) return 'CONECTOR';
+  if (t.indexOf('PLAQUETA')  >= 0) return 'PLAQUETA';
+  if (t.indexOf('CUNHA')     >= 0) return 'CUNHA';
+  if (ehRolo500_(material, agregador)) return 'DROP ROLO';
+  if (t.indexOf('DROP')      >= 0) return 'DROP PECAS';
+  return null;
+}
+
+/** Colunas do resumo de miscelânia por técnico, na ordem de exibição. */
+var CATS_MISC_ = [
+  { key: 'DROP PECAS', label: 'DROP peças (un)', medida: 'un' },
+  { key: 'DROP ROLO',  label: 'DROP rolo 500m (m)', medida: 'metros' },
+  { key: 'CONECTOR',   label: 'CONECTOR (un)', medida: 'un' },
+  { key: 'PLAQUETA',   label: 'PLAQUETA (un)', medida: 'un' },
+  { key: 'CUNHA',      label: 'CUNHA (un)', medida: 'un' }
+];
+
 /** Ordem de exibição da seção materiais-chave. */
 var ORDEM_CHAVE_ = [
   'CABO / DROP (peças)', 'CABO ROLO 500M', 'CONECTOR INTERNO', 'CONECTOR EXTERNO',
@@ -548,9 +746,10 @@ function lerFormsInstalados_(cfg, equipe) {
     const row   = dados[i];
     const colA  = String(row[0] || '').trim();
     const tr    = extrairTrDaColA_(colA);
-    if (!tr) continue;
 
-    const tec = equipe.porTr[tr];
+    // 1º tenta cruzar pelo TR; se não achar, cai para o nome (col A traz "NOME - TR######")
+    let tec = tr ? equipe.porTr[tr] : null;
+    if (!tec) tec = casarPorNome_(colA, equipe.porNome);
     if (!tec) continue;
 
     const tt = tec.tt;
@@ -582,12 +781,44 @@ function extrairTrDaColA_(v) {
   return m ? m[0].toUpperCase() : '';
 }
 
+/**
+ * Fallback de cruzamento por nome quando o TR não bate.
+ * Pega a parte de nome da col A (antes do " - TR..."), normaliza e procura em porNome.
+ * Tenta nome completo e depois primeiro+último token.
+ */
+function casarPorNome_(colA, porNome) {
+  if (!porNome) return null;
+  let s = String(colA || '');
+  s = s.replace(/\bT[RT]\d+\b/ig, ' ');          // remove códigos TR/TT
+  s = s.replace(/[-–|].*$/, ' ');                 // corta a partir de traço/barra
+  const chave = chaveNome_(s);
+  if (!chave) return null;
+  if (porNome[chave]) return porNome[chave];
+  // tenta primeiro + último nome
+  const toks = chave.split(' ').filter(Boolean);
+  if (toks.length >= 2) {
+    const reduzida = toks[0] + ' ' + toks[toks.length - 1];
+    if (porNome[reduzida]) return porNome[reduzida];
+  }
+  // tenta achar uma chave que comece pelo mesmo primeiro+segundo nome
+  if (toks.length >= 2) {
+    const prefixo = toks[0] + ' ' + toks[1];
+    const achou = Object.keys(porNome).find(function (k) { return k.indexOf(prefixo) === 0; });
+    if (achou) return porNome[achou];
+  }
+  return null;
+}
+
 // ─── Painel miscelânia (ontem × hoje) ────────────────────────────────────────
 
 function montarPainelMiscelania() {
   const ss = obterPlanilha_();
   const cfg = lerConfig_();
   const equipe = carregarEquipeTci_(cfg);
+
+  // Garante que o snapshot de hoje está salvo (a base é trocada todo dia — guardamos o histórico).
+  try { registrarSnapshotMisc(); } catch (e) { /* segue com o que houver */ }
+
   const shHist = ss.getSheetByName('HISTORICO MISC');
   if (!shHist || shHist.getLastRow() < 2) {
     throw new Error('Sem histórico. Rode primeiro: Registrar snapshot de hoje.');
@@ -606,107 +837,171 @@ function montarPainelMiscelania() {
   if (old) ss.deleteSheet(old);
   const sh = ss.insertSheet(nome, 0);
 
-  titulo_(sh, 'A1:O1', 'PAINEL MISCELANIA TCI — ONTEM × HOJE (por TT)');
+  const NC = CATS_MISC_.length + 3; // TT, Técnico, Área + categorias
+  const colFim = colLetra_(Math.max(NC, 9));
+
+  titulo_(sh, 'A1:' + colFim + '1', 'PAINEL MISCELANIA TCI — CARGA ATUAL POR TÉCNICO (saldo col ' + cfg.COL_SALDO_MISC + ')');
   const txtComp = dataOntem
-    ? ('Comparação: ' + dataOntem + ' → ' + dataHoje)
-    : ('1º snapshot: ' + dataHoje + ' — rode amanhã para ver ontem × hoje');
-  sh.getRange('A2:O2').merge()
+    ? ('Comparação com ontem: ' + dataOntem + ' → ' + dataHoje)
+    : ('1º snapshot: ' + dataHoje + ' — farol de movimentação aparece a partir de amanhã');
+  sh.getRange('A2:' + colFim + '2').merge()
     .setValue(txtComp + '  |  Atualizado: ' + Utilities.formatDate(
       new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'
     ))
     .setFontStyle('italic').setHorizontalAlignment('center').setFontSize(10);
 
-  escreverDescricaoRegras_(sh, 'A3:O3',
-    'Alimenta-se de: EQUIPES (online, entradas/saídas dos técnicos) · FORMS de encerradas · MATERIAIS TCI BASE.  ' +
-    'Técnico baixa material aplicando na atividade — queda de saldo = trabalho. Transferências e defeitos devem ' +
-    'ser tratados no dia/armazém para a carga ficar exata.');
+  escreverDescricaoRegras_(sh, 'A3:' + colFim + '3',
+    'Saldo atual = coluna ' + cfg.COL_SALDO_MISC + ' da BASE MICELANEAS. A base é trocada diariamente até 11h e o histórico de ontem fica salvo. ' +
+    'Farol por célula: VERDE = saldo baixou de ontem→hoje (aplicou) · VERMELHO = saldo igual (sem movimentação). ' +
+    'DROP = só descrição DROP (peças) + rolo 500m. CABO genérico sem DROP não entra.');
 
   let row = 5;
-  row = escreverMateriaisChave_(sh, row, snapshots, dataOntem, dataHoje, equipe.porTt);
-  row = escreverResumoDrop_(sh, row, snapshots, dataOntem, dataHoje, equipe.porTt);
 
+  // ── SEÇÃO 1: RESUMO POR TÉCNICO — quantidade por categoria, farol por célula ──
+  sh.getRange(row, 1).setValue('RESUMO — quantidade em carga por técnico e categoria').setFontWeight('bold').setFontSize(11);
+  row++;
+  const cabResumo = ['TT', 'Técnico', 'Área'].concat(CATS_MISC_.map(function (c) { return c.label; }));
+  cabecalhoTabela_(sh, 'A' + row + ':' + colLetra_(NC) + row, cabResumo);
+  const linCabResumo = row;
+  row++;
+
+  const linhasResumo = [];
+  const corResumo = []; // matriz de cores por célula de categoria
+  Object.keys(equipe.porTt).sort().forEach(function (tt) {
+    const tec = equipe.porTt[tt];
+    const h = somarCatsMiscTecnico_(snapshots, dataHoje,  tt);
+    const o = somarCatsMiscTecnico_(snapshots, dataOntem, tt);
+    const temAlgo = CATS_MISC_.some(function (c) { return h[c.key] > 0 || o[c.key] > 0; });
+    if (!temAlgo) return;
+
+    const lin = [tt, tec.nome, tec.area || ''];
+    const cores = [];
+    CATS_MISC_.forEach(function (c) {
+      const vh = h[c.key] || 0;
+      const vo = o[c.key] || 0;
+      lin.push(vh);
+      // VERDE se houve movimentação (saldo mudou); VERMELHO se igual; sem ontem → sem cor
+      if (!dataOntem)      cores.push(null);
+      else if (vh !== vo)  cores.push('#e8f5e9');
+      else                 cores.push('#ffcdd2');
+    });
+    linhasResumo.push(lin);
+    corResumo.push(cores);
+  });
+
+  if (linhasResumo.length) {
+    const fim = row + linhasResumo.length - 1;
+    rangeLinhas_(sh, row, 1, linhasResumo.length, NC).setValues(linhasResumo);
+    rangeLinhas_(sh, row, 4, linhasResumo.length, CATS_MISC_.length).setNumberFormat('#,##0');
+    for (let i = 0; i < corResumo.length; i++) {
+      for (let j = 0; j < corResumo[i].length; j++) {
+        if (corResumo[i][j]) sh.getRange(row + i, 4 + j).setBackground(corResumo[i][j]);
+      }
+    }
+    sh.getRange('A' + linCabResumo + ':' + colLetra_(NC) + fim).setBorder(
+      true, true, true, true, true, true, '#9e9e9e', SpreadsheetApp.BorderStyle.SOLID);
+    row = fim + 3;
+  } else {
+    row += 2;
+  }
+
+  // ── SEÇÃO 2: DETALHE POR TÉCNICO E MATERIAL — farol por linha (sem ontem/hoje) ──
   sh.getRange(row, 1).setValue('DETALHE POR TÉCNICO E MATERIAL').setFontWeight('bold').setFontSize(11);
   row++;
-  const cab = [
-    'TT', 'Técnico', 'Área', 'Segmento', 'Material', 'Grupo', 'Medida',
-    'Saldo ontem', 'Saldo hoje', 'Variação', 'Situação', 'Dias s/ baixar'
-  ];
-  cabecalhoTabela_(sh, 'A' + row + ':L' + row, cab);
+  cabecalhoTabela_(sh, 'A' + row + ':I' + row, [
+    'TT', 'Técnico', 'Área', 'Categoria', 'Material', 'Medida', 'Saldo atual', 'Status', 'Observação'
+  ]);
   const linhaCab = row;
   row++;
 
   const chaves = {};
   equipe.lista.forEach(function (tec) {
-    Object.keys(snapshots.porData[dataHoje] || {}).forEach(function (k) {
-      if (k.indexOf(tec.tt + '\t') === 0) chaves[k] = true;
-    });
-    if (dataOntem) {
-      Object.keys(snapshots.porData[dataOntem] || {}).forEach(function (k) {
+    [dataHoje, dataOntem].forEach(function (d) {
+      if (!d || !snapshots.porData[d]) return;
+      Object.keys(snapshots.porData[d]).forEach(function (k) {
         if (k.indexOf(tec.tt + '\t') === 0) chaves[k] = true;
       });
-    }
+    });
   });
 
   const linhas = [];
-  const notasObs = [];   // {offset, texto} para anotar na célula Material sem poluir
+  const coresStatus = [];
+  const notasObs = [];
   Object.keys(chaves).sort().forEach(function (chave) {
-    const partes = chave.split('\t');
-    const tt  = partes[0];
+    const tt  = chave.split('\t')[0];
     const tec = equipe.porTt[tt];
     if (!tec) return;
 
     const snapHoje  = (snapshots.porData[dataHoje]  && snapshots.porData[dataHoje][chave])  || null;
     const snapOntem = dataOntem && snapshots.porData[dataOntem]
-      ? snapshots.porData[dataOntem][chave]
-      : null;
+      ? snapshots.porData[dataOntem][chave] : null;
+    const ref = snapHoje || snapOntem;
+
+    const cat = categoriaMisc_(ref.material, ref.agregador, ref.grupo);
+    if (!cat) return; // só categorias acompanhadas (DROP, CONECTOR, PLAQUETA, CUNHA)
 
     const saldoHoje  = snapHoje  ? snapHoje.saldo  : 0;
     const saldoOntem = snapOntem ? snapOntem.saldo : 0;
-    const ref      = snapHoje || snapOntem;
-    const variacao = saldoHoje - saldoOntem;
-    const situacao = classificarVariacao_(saldoOntem, saldoHoje);
-    const dias     = diasSemBaixar_(snapshots, chave);
 
-    const obs = (ref.observacao || '').trim();
-    if (obs) notasObs.push({ offset: linhas.length, texto: 'Observação almox: ' + obs });
+    let status, cor, obsMov;
+    if (!dataOntem) { status = 'AGUARDANDO 2º DIA'; cor = null; obsMov = ''; }
+    else if (saldoHoje !== saldoOntem) { status = 'MOVIMENTOU'; cor = '#e8f5e9'; obsMov = ''; }
+    else { status = 'PARADO'; cor = '#ffcdd2'; obsMov = 'sem movimentação'; }
+
+    const obsBase = (ref.observacao || '').trim();
+    if (obsBase) notasObs.push({ offset: linhas.length, texto: 'Observação almox: ' + obsBase });
 
     linhas.push([
-      tt,
-      tec.nome,
-      tec.area,
-      ref.segmento || '',
-      ref.material,
-      ref.grupo,
-      medidaMaterial_(ref.material, ref.agregador, ref.grupo),
-      dataOntem ? saldoOntem : '',
-      saldoHoje,
-      dataOntem ? variacao   : '',
-      dataOntem ? situacao   : 'AGUARDANDO 2º DIA',
-      dataOntem ? dias       : ''
+      tt, tec.nome, tec.area || '', catMiscLabel_(cat),
+      ref.material, medidaMaterial_(ref.material, ref.agregador, ref.grupo),
+      saldoHoje, status, obsMov
     ]);
+    coresStatus.push(cor);
   });
 
   if (linhas.length) {
     const fim = row + linhas.length - 1;
-    rangeLinhas_(sh, row, 1, linhas.length, 12).setValues(linhas);
-    rangeLinhas_(sh, row, 8, linhas.length, 3).setNumberFormat('#,##0');
-    colorirSituacao_(sh, row, fim, 11);
-    colorirDiasSemBaixar_(sh, row, fim, 12);
-    // Observação da base TCI (col I) entra como NOTA na célula Material — não polui a tabela
-    notasObs.forEach(function (n) {
-      sh.getRange(row + n.offset, 5).setNote(n.texto);
-    });
-    sh.getRange('A' + linhaCab + ':L' + fim).setBorder(
-      true, true, true, true, true, true, '#bdbdbd', SpreadsheetApp.BorderStyle.SOLID
-    );
+    rangeLinhas_(sh, row, 1, linhas.length, 9).setValues(linhas);
+    rangeLinhas_(sh, row, 7, linhas.length, 1).setNumberFormat('#,##0');
+    for (let i = 0; i < coresStatus.length; i++) {
+      if (coresStatus[i]) {
+        sh.getRange(row + i, 8).setBackground(coresStatus[i]); // Status
+        sh.getRange(row + i, 9).setBackground(coresStatus[i]); // Observação
+      }
+    }
+    notasObs.forEach(function (n) { sh.getRange(row + n.offset, 5).setNote(n.texto); });
+    sh.getRange('A' + linhaCab + ':I' + fim).setBorder(
+      true, true, true, true, true, true, '#bdbdbd', SpreadsheetApp.BorderStyle.SOLID);
   }
 
-  [90, 220, 80, 100, 260, 110, 50, 90, 90, 80, 110, 90].forEach(function (w, i) {
+  // Larguras: cabeçalho do detalhe tem 9 colunas
+  [90, 200, 70, 110, 280, 70, 90, 120, 150].forEach(function (w, i) {
     sh.setColumnWidth(i + 1, w);
   });
-  sh.setFrozenRows(linhaCab);
+  sh.setFrozenRows(4);   // congela só título/subtítulo/regras — não congela tabelas
   SpreadsheetApp.flush();
   ss.toast('Painel miscelânia atualizado.', 'TCI Carga', 8);
+}
+
+/** Soma saldo por categoria simplificada (CATS_MISC_) para um técnico numa data. */
+function somarCatsMiscTecnico_(snapshots, data, tt) {
+  const out = {};
+  CATS_MISC_.forEach(function (c) { out[c.key] = 0; });
+  if (!data || !snapshots.porData[data]) return out;
+  Object.keys(snapshots.porData[data]).forEach(function (chave) {
+    if (chave.indexOf(tt + '\t') !== 0) return;
+    const item = snapshots.porData[data][chave];
+    const cat = categoriaMisc_(item.material, item.agregador, item.grupo);
+    if (cat && out[cat] !== undefined) out[cat] += item.saldo;
+  });
+  return out;
+}
+
+/** Rótulo amigável da categoria no detalhe. */
+function catMiscLabel_(cat) {
+  if (cat === 'DROP PECAS') return 'DROP (peças)';
+  if (cat === 'DROP ROLO')  return 'DROP (rolo 500m)';
+  return cat;
 }
 
 /** Texto de regras/descrição numa faixa mesclada, fonte pequena, sem poluir. */
@@ -971,96 +1266,93 @@ function montarPainelModems() {
   const forms  = lerFormsInstalados_(cfg, equipe);
 
   const tz = Session.getScriptTimeZone();
-  const hoje   = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-  const ontem  = Utilities.formatDate(new Date(Date.now() - 86400000), tz, 'yyyy-MM-dd');
+  const hoje = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
 
-  // Serials baixados HOJE no Forms — usados para abater da carga (serial = equipamento único)
-  const instaladosHoje = coletarSeriaisInstalados_(forms, hoje);
+  // TODOS os serials já encerrados no Forms (histórico completo) — saem da carga na hora.
+  const encerradosTotal = coletarSeriaisInstalados_(forms, null);
 
   const nome = 'PAINEL MODEMS';
   let old = ss.getSheetByName(nome);
   if (old) ss.deleteSheet(old);
   const sh = ss.insertSheet(nome, 0);
 
-  // 10 colunas: TT | Técnico | Área | Velocidade | Qtd em carga (líquida) | Total em carga | Baixados hoje | Total Forms (histórico) | Preencheu hoje/ontem? | Status
-  titulo_(sh, 'A1:J1', 'PAINEL MODEMS TCI — CARGA POR TT · controle de preenchimento Forms');
-  sh.getRange('A2:J2').merge()
-    .setValue('Carga líquida = ALMOX menos serials já baixados no Forms hoje · Somente TT da EQUIPES · Atualizado: ' +
+  // 9 colunas: TT | Técnico | Área | Velocidade | Qtd em carga (líquida) | Encerrados hoje | Total encerrados (histórico) | Último encerramento | Status
+  titulo_(sh, 'A1:I1', 'PAINEL MODEMS TCI — CARGA LÍQUIDA POR TT (só ONT · MESH · MODEM)');
+  sh.getRange('A2:I2').merge()
+    .setValue('Carga = ALMOX SERIALIZADA − TODOS os seriais já encerrados no Forms (histórico) · Somente TT da EQUIPES · Atualizado: ' +
       Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm'))
     .setFontStyle('italic').setHorizontalAlignment('center').setFontSize(10);
 
-  escreverDescricaoRegras_(sh, 'A3:J3',
-    'Técnico preenche o Forms DIARIAMENTE e baixa o serial (preencher hoje = verde; só ontem ou nada = vermelho). ' +
-    'Transferências devem ser realizadas no dia para atualização exata. ' +
-    'Defeitos devem ser encaminhados ao armazém para sair da carga. ' +
-    'Fontes: EQUIPES (online) · FORMS de encerradas · MATERIAIS TCI BASE.');
+  escreverDescricaoRegras_(sh, 'A3:I3',
+    'Serial encerrado no Forms = equipamento já instalado no cliente → sai da carga imediatamente (independe da observação BASE/TÉCNICO/PENDENTE da col I). ' +
+    'Status = tempo desde o último encerramento: hoje (verde) · 1 dia (amarelo) · 2 dias (laranja) · 3+ dias (vermelho). ' +
+    'Fontes: EQUIPES (online) · FORMS de encerradas · ALMOX SERIALIZADA.');
 
-  cabecalhoTabela_(sh, 'A4:J4', [
+  cabecalhoTabela_(sh, 'A4:I4', [
     'TT', 'Técnico', 'Área', 'Velocidade / Descrição', 'Qtd em carga (líquida)',
-    'Total em carga', 'Baixados hoje', 'Total Forms (histórico)', 'Preencheu hoje/ontem?', 'Status'
+    'Encerrados hoje', 'Total encerrados (histórico)', 'Último encerramento', 'Status'
   ]);
 
-  // Agrupa por TT e por velocidade — abatendo serial já instalado no Forms hoje
+  // Agrupa por TT e por velocidade — abatendo serial JÁ ENCERRADO (qualquer dia) da carga
   const porTt = {};
   modems.forEach(function (m) {
-    if (!porTt[m.tt]) porTt[m.tt] = { velocidades: {}, total: 0, baixados: 0 };
-    if (m.serial && instaladosHoje[m.serial]) {
-      porTt[m.tt].baixados += 1;
-      return;
-    }
+    if (!porTt[m.tt]) porTt[m.tt] = { velocidades: {}, total: 0 };
+    if (m.serial && encerradosTotal[m.serial]) return; // já no cliente — fora da carga
     porTt[m.tt].velocidades[m.velocidade] = (porTt[m.tt].velocidades[m.velocidade] || 0) + 1;
     porTt[m.tt].total += 1;
   });
 
+  const farolCores = [];
   const linhas = equipe.lista.map(function (tec) {
     const almox = porTt[tec.tt];
     const form  = forms[tec.tt];
 
-    const totalCarga  = almox ? almox.total   : 0;
-    const baixados    = almox ? almox.baixados : 0;
     const velocOrdenadas = almox ? Object.keys(almox.velocidades).sort() : [];
     const colVeloc = velocOrdenadas.map(function (v) { return v || '(sem descrição)'; }).join('\n');
     const colQtd   = velocOrdenadas.map(function (v) { return almox.velocidades[v]; }).join('\n');
 
-    // Total de preenchimentos históricos no Forms (todos os dias)
-    const totalForms = form ? form.instalacoes.length : 0;
-
-    // Preencheu hoje OU ontem?
-    let preencheuStatus = 'NÃO PREENCHEU';
-    if (form && form.instalacoes.length > 0) {
-      const preencheuHoje  = form.instalacoes.some(function (ins) { return ins.data === hoje; });
-      const preencheuOntem = form.instalacoes.some(function (ins) { return ins.data === ontem; });
-      if (preencheuHoje)       preencheuStatus = 'SIM — hoje';
-      else if (preencheuOntem) preencheuStatus = 'SIM — ontem (não hoje)';
-      else                     preencheuStatus = 'NÃO (2 dias)';
-    }
+    const r = resumirFormsTt_(form, hoje, tz);
+    const farol = farolEncerramento_(r.diasDesde);
+    farolCores.push(farol.cor);
 
     return [
       tec.tt, tec.nome, tec.area, colVeloc, colQtd,
-      totalCarga, baixados || '', totalForms || '', preencheuStatus, tec.status
+      r.encerradosHoje || '', r.totalEncerrados || '', farol.txt, farol.status
     ];
   });
 
-  linhas.sort(function (a, b) { return Number(b[5]) - Number(a[5]); });
+  linhas.sort(function (a, b) {
+    // ordena por status mais crítico primeiro (3+ dias no topo), depois por carga
+    const oa = ordemStatus_(a[8]), ob = ordemStatus_(b[8]);
+    if (oa !== ob) return ob - oa;
+    return Number(b[4].toString().split('\n')[0] || 0) - Number(a[4].toString().split('\n')[0] || 0);
+  });
+  // recoloca cores na ordem ordenada
+  const corPorTt = {};
+  equipe.lista.forEach(function (tec, i) { corPorTt[tec.tt] = farolCores[i]; });
 
   if (linhas.length) {
-    rangeLinhas_(sh, 5, 1, linhas.length, 10).setValues(linhas);
-    rangeLinhas_(sh, 5, 6, linhas.length, 1).setNumberFormat('#,##0');
+    rangeLinhas_(sh, 5, 1, linhas.length, 9).setValues(linhas);
     rangeLinhas_(sh, 5, 4, linhas.length, 1).setWrap(true);
     rangeLinhas_(sh, 5, 5, linhas.length, 1).setWrap(true).setHorizontalAlignment('center');
-    // Colorir coluna "Preencheu hoje/ontem?" (col I = índice 9)
-    colorirPreenchimento_(sh, 5, 5 + linhas.length - 1, 9);
+    for (let i = 0; i < linhas.length; i++) {
+      const cor = corPorTt[linhas[i][0]];
+      if (cor) {
+        sh.getRange(5 + i, 8).setBackground(cor); // Último encerramento
+        sh.getRange(5 + i, 9).setBackground(cor); // Status
+      }
+    }
   }
 
-  [90, 220, 80, 260, 110, 100, 100, 110, 140, 90].forEach(function (w, i) {
+  [90, 220, 80, 280, 120, 110, 150, 130, 110].forEach(function (w, i) {
     sh.setColumnWidth(i + 1, w);
   });
   sh.setFrozenRows(4);
 
-  // ── Totalizador: carga TCI por equipamento/ONT (soma de todos os técnicos) ──
+  // ── Totalizador: carga TCI por equipamento/ONT (soma de todos, líquida) ──
   const totalPorEquip = {};
   modems.forEach(function (m) {
-    if (m.serial && instaladosHoje[m.serial]) return; // já baixado hoje, fora da carga
+    if (m.serial && encerradosTotal[m.serial]) return; // já encerrado, fora da carga
     const v = m.velocidade || '(sem descrição)';
     totalPorEquip[v] = (totalPorEquip[v] || 0) + 1;
   });
@@ -1094,18 +1386,50 @@ function montarPainelModems() {
   ss.toast('Painel modems atualizado.', 'TCI Carga', 8);
 }
 
-function colorirPreenchimento_(sh, rowIni, rowFim, col) {
-  const range = sh.getRange(rowIni, col, rowFim - rowIni + 1, 1);
-  const vals  = range.getValues();
-  for (let i = 0; i < vals.length; i++) {
-    const s = String(vals[i][0] || '').toUpperCase();
-    let bg = null;
-    // Só "SIM — hoje" é verde. Preencheu só ontem (não hoje) = vermelho. Nada = vermelho forte.
-    if (s.indexOf('SIM — HOJE') >= 0)       bg = '#e8f5e9';  // verde — em dia
-    else if (s.indexOf('SIM — ONTEM') >= 0) bg = '#fff8e1';  // amarelo — normal (preenchem no fim do dia)
-    else if (s.indexOf('NÃO') >= 0)         bg = '#ef9a9a';  // vermelho forte — 2+ dias sem preencher
-    if (bg) sh.getRange(rowIni + i, col).setBackground(bg);
-  }
+/**
+ * Resume os encerramentos do Forms de um técnico:
+ *  - totalEncerrados: nº de seriais encerrados em todo o histórico
+ *  - encerradosHoje:  nº de seriais encerrados hoje
+ *  - diasDesde:       dias desde o último encerramento (0 = hoje); null = nunca encerrou
+ */
+function resumirFormsTt_(form, hojeIso, tz) {
+  const out = { totalEncerrados: 0, encerradosHoje: 0, diasDesde: null };
+  if (!form || !form.instalacoes || !form.instalacoes.length) return out;
+  let ultimaData = null;
+  form.instalacoes.forEach(function (ins) {
+    const n = (ins.seriais && ins.seriais.length) ? ins.seriais.length : 0;
+    out.totalEncerrados += n;
+    if (ins.data === hojeIso) out.encerradosHoje += n;
+    if (ins.data && (!ultimaData || ins.data > ultimaData)) ultimaData = ins.data;
+  });
+  if (ultimaData) out.diasDesde = diasEntreIso_(ultimaData, hojeIso);
+  return out;
+}
+
+/** Dias entre duas datas ISO (yyyy-MM-dd). hoje − data. */
+function diasEntreIso_(dataIso, hojeIso) {
+  const a = new Date(dataIso + 'T00:00:00');
+  const b = new Date(hojeIso + 'T00:00:00');
+  if (isNaN(a.getTime()) || isNaN(b.getTime())) return null;
+  return Math.round((b.getTime() - a.getTime()) / 86400000);
+}
+
+/** Farol pelo nº de dias desde o último encerramento no Forms. */
+function farolEncerramento_(diasDesde) {
+  if (diasDesde === null)   return { txt: 'nunca encerrou', status: '🔴 3+ dias', cor: '#ef9a9a' };
+  if (diasDesde <= 0)       return { txt: 'hoje',           status: '🟢 OK',      cor: '#e8f5e9' };
+  if (diasDesde === 1)      return { txt: 'há 1 dia',       status: '🟡 1 dia',   cor: '#fff8e1' };
+  if (diasDesde === 2)      return { txt: 'há 2 dias',      status: '🟠 2 dias',  cor: '#ffe0b2' };
+  return { txt: 'há ' + diasDesde + ' dias', status: '🔴 3+ dias', cor: '#ef9a9a' };
+}
+
+/** Peso de ordenação do status (maior = mais crítico, vai pro topo). */
+function ordemStatus_(status) {
+  const s = String(status || '');
+  if (s.indexOf('3+') >= 0)  return 4;
+  if (s.indexOf('2 dias') >= 0) return 3;
+  if (s.indexOf('1 dia') >= 0)  return 2;
+  return 1; // OK hoje
 }
 
 /** Serials baixados no Forms na data indicada (qualquer técnico). serial → true */
