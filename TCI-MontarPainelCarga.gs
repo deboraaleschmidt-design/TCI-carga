@@ -101,7 +101,7 @@ var CFG_PADRAO_ = {
   FORMS_ID:     '1h_u41TfElB651eKIhDgT0aQdnMx6_DASLEsBNThA5R0',
   ABA_MISC:     'BASE MICELANEAS',
   ABA_ALMOX:    'ALMOX SERIALIZADA',
-  ABA_EQUIPES:  'Página4',
+  ABA_EQUIPES:  'FERNANDA TT TR TELEFONE',
   GID_EQUIPES:  '1514437459',
   ABA_FORMS:    'Respostas ao formulário 1'
 };
@@ -247,7 +247,7 @@ function preencherConfig_(sh) {
     ['ABA_FORMS',    CFG_PADRAO_.ABA_FORMS],
     ['', ''],
     ['Regra ONT',    'Excluir Grupo=ONT ou subsegmento FIBRA ONT (SERIAL)'],
-    ['Técnicos',     'Somente TT listados na planilha EQUIPES (Página4)'],
+    ['Técnicos',     'Somente TT listados na planilha EQUIPES (FERNANDA TT TR TELEFONE)'],
     ['Snapshot',     'Registrar após colar BASE MICELANEAS (~10h)'],
     ['Painel misc',  'Compara último dia × penúltimo dia do HISTÓRICO'],
     ['Forms',        'Cruza TR (col A do Forms) com TR da EQUIPES p/ achar TT']
@@ -606,17 +606,17 @@ function montarPainelMiscelania() {
   if (old) ss.deleteSheet(old);
   const sh = ss.insertSheet(nome, 0);
 
-  titulo_(sh, 'A1:L1', 'PAINEL MISCELANIA TCI — ONTEM × HOJE (por TT)');
+  titulo_(sh, 'A1:O1', 'PAINEL MISCELANIA TCI — ONTEM × HOJE (por TT)');
   const txtComp = dataOntem
     ? ('Comparação: ' + dataOntem + ' → ' + dataHoje)
     : ('1º snapshot: ' + dataHoje + ' — rode amanhã para ver ontem × hoje');
-  sh.getRange('A2:L2').merge()
+  sh.getRange('A2:O2').merge()
     .setValue(txtComp + '  |  Atualizado: ' + Utilities.formatDate(
       new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'
     ))
     .setFontStyle('italic').setHorizontalAlignment('center').setFontSize(10);
 
-  escreverDescricaoRegras_(sh, 'A3:L3',
+  escreverDescricaoRegras_(sh, 'A3:O3',
     'Alimenta-se de: EQUIPES (online, entradas/saídas dos técnicos) · FORMS de encerradas · MATERIAIS TCI BASE.  ' +
     'Técnico baixa material aplicando na atividade — queda de saldo = trabalho. Transferências e defeitos devem ' +
     'ser tratados no dia/armazém para a carga ficar exata.');
@@ -781,46 +781,71 @@ function somarPorCategoria_(snapshots, data, porTt) {
   return out;
 }
 
+/**
+ * RESUMO POR TÉCNICO — todas as categorias de miscelânia (ontem × hoje).
+ * Colunas: TT | Técnico | Área | CABO/DROP (un) | Rolo 500m (m) | CONECTOR | PLAQUETA | ESTICADOR/ANEL | Consumiu hoje?
+ */
 function escreverResumoDrop_(sh, row, snapshots, dataOntem, dataHoje, porTt) {
-  sh.getRange(row, 1).setValue('RESUMO DROP — rolo 500m (metros) × peças (unidades)').setFontWeight('bold').setFontSize(11);
+  sh.getRange(row, 1).setValue('RESUMO MISCELÂNIA POR TÉCNICO — todas as categorias (ontem × hoje)').setFontWeight('bold').setFontSize(11);
   row++;
-  cabecalhoTabela_(sh, 'A' + row + ':I' + row, [
-    'TT', 'Técnico', 'Rolo 500m ontem (m)', 'Rolo 500m hoje (m)',
-    'Peças drop ontem (un)', 'Peças drop hoje (un)', 'Situação', 'Consumiu?', 'Obs'
-  ]);
+
+  // Cabeçalho duplo: categoria acima, ontem/hoje abaixo
+  const CATS = [
+    { label: 'CABO/DROP (un)',     key: 'CABO / DROP (peças)' },
+    { label: 'Rolo 500m (m)',      key: 'CABO ROLO 500M'      },
+    { label: 'CONECTOR (un)',      key: 'CONECTOR'             },
+    { label: 'PLAQUETA (un)',      key: 'PLAQUETA'             },
+    { label: 'ESTICADOR/ANEL (un)',key: 'ESTICADOR / ANEL'     }
+  ];
+
+  // Linha de cabeçalho simples
+  const cabRow = ['TT', 'Técnico', 'Área'];
+  CATS.forEach(function (c) {
+    cabRow.push(c.label + ' ontem');
+    cabRow.push(c.label + ' hoje');
+  });
+  cabRow.push('Consumiu hoje?');
+
+  cabecalhoTabela_(sh, 'A' + row + ':' + colLetra_(cabRow.length) + row, cabRow);
   const linCab = row;
   row++;
 
   const resumo = [];
   Object.keys(porTt).sort().forEach(function (tt) {
-    const o = somarDropTecnico_(snapshots, dataOntem, tt);
-    const h = somarDropTecnico_(snapshots, dataHoje,  tt);
-    if (o.metros <= 0 && o.unidades <= 0 && h.metros <= 0 && h.unidades <= 0) return;
+    const somaH = somarCatsTecnico_(snapshots, dataHoje,  tt, CATS);
+    const somaO = somarCatsTecnico_(snapshots, dataOntem, tt, CATS);
 
-    const totO = o.metros + o.unidades;
-    const totH = h.metros + h.unidades;
-    const variacao = totH - totO;
-    const sit = classificarVariacao_(totO, totH);
-    const obsParts = [];
-    if (h.metros < o.metros)     obsParts.push('rolo -' + (o.metros - h.metros) + 'm');
-    if (h.unidades < o.unidades) obsParts.push('peças -' + (o.unidades - h.unidades) + 'un');
+    // Pula técnico sem nenhum material nas categorias
+    const temAlgo = CATS.some(function (c) { return somaH[c.key] > 0 || somaO[c.key] > 0; });
+    if (!temAlgo) return;
 
-    resumo.push([
-      tt, porTt[tt].nome,
-      dataOntem ? o.metros : '', h.metros,
-      dataOntem ? o.unidades : '', h.unidades,
-      dataOntem ? sit : 'AGUARDANDO 2º DIA',
-      dataOntem && variacao < 0 ? 'SIM' : (dataOntem && variacao === 0 ? 'NÃO' : ''),
-      dataOntem ? obsParts.join(' · ') : ''
-    ]);
+    const lin = [tt, porTt[tt].nome, porTt[tt].area || ''];
+    let consumiu = false;
+    CATS.forEach(function (c) {
+      const h = somaH[c.key] || 0;
+      const o = somaO[c.key] || 0;
+      lin.push(dataOntem ? o : '');
+      lin.push(h);
+      if (dataOntem && h < o) consumiu = true;
+    });
+    lin.push(dataOntem ? (consumiu ? 'SIM' : 'NÃO') : '');
+    resumo.push(lin);
   });
 
   if (resumo.length) {
+    const ncols = cabRow.length;
     const fim = row + resumo.length - 1;
-    rangeLinhas_(sh, row, 1, resumo.length, 9).setValues(resumo);
-    rangeLinhas_(sh, row, 3, resumo.length, 4).setNumberFormat('#,##0');
-    colorirSituacao_(sh, row, fim, 7);
-    sh.getRange('A' + linCab + ':I' + fim).setBorder(
+    rangeLinhas_(sh, row, 1, resumo.length, ncols).setValues(resumo);
+    // Colorir "Consumiu hoje?" (última coluna)
+    const colCons = ncols;
+    for (let i = 0; i < resumo.length; i++) {
+      const v = String(resumo[i][colCons - 1] || '').toUpperCase();
+      let bg = null;
+      if (v === 'SIM') bg = '#e8f5e9';
+      else if (v === 'NÃO') bg = '#fff8e1';
+      if (bg) sh.getRange(row + i, colCons).setBackground(bg);
+    }
+    sh.getRange('A' + linCab + ':' + colLetra_(ncols) + fim).setBorder(
       true, true, true, true, true, true, '#9e9e9e', SpreadsheetApp.BorderStyle.SOLID
     );
     row = fim + 3;
@@ -830,18 +855,41 @@ function escreverResumoDrop_(sh, row, snapshots, dataOntem, dataHoje, porTt) {
   return row;
 }
 
-/** Soma drop por técnico, separando rolo 500m (metros) de peças (unidades). */
-function somarDropTecnico_(snapshots, data, tt) {
-  const out = { metros: 0, unidades: 0 };
+/** Soma saldo por categoria-chave para um técnico (TT) numa data. */
+function somarCatsTecnico_(snapshots, data, tt, cats) {
+  const out = {};
+  cats.forEach(function (c) { out[c.key] = 0; });
   if (!data || !snapshots.porData[data]) return out;
   Object.keys(snapshots.porData[data]).forEach(function (chave) {
     if (chave.indexOf(tt + '\t') !== 0) return;
     const item = snapshots.porData[data][chave];
-    if (!ehDrop_(item.material, item.agregador, item.grupo)) return;
-    if (ehRolo500_(item.material, item.agregador)) out.metros   += item.saldo;
-    else                                           out.unidades += item.saldo;
+    // Para CONECTOR agrupamos qualquer variante
+    const cat = categoriaChaveResumo_(item.material, item.agregador);
+    if (cat && out[cat] !== undefined) out[cat] += item.saldo;
   });
   return out;
+}
+
+/** Mesmo que categoriaChave_ mas mapeia variantes de CONECTOR para a chave genérica. */
+function categoriaChaveResumo_(material, agregador) {
+  const t = [material, agregador].join(' ').toUpperCase();
+  if (t.indexOf('CONECTOR') >= 0)                              return 'CONECTOR';
+  if (t.indexOf('PLAQUETA') >= 0)                             return 'PLAQUETA';
+  if (t.indexOf('ESTICADOR') >= 0 || t.indexOf('ANEL') >= 0)  return 'ESTICADOR / ANEL';
+  if (ehRolo500_(material, agregador))                        return 'CABO ROLO 500M';
+  if (t.indexOf('DROP') >= 0 || t.indexOf('CABO') >= 0)       return 'CABO / DROP (peças)';
+  return null;
+}
+
+/** Converte número de coluna (1-based) para letra(s) de coluna. */
+function colLetra_(n) {
+  let s = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
 }
 
 /** Colore coluna "Dias s/ baixar": 4+ vermelho forte, 2-3 amarelo, 0-1 verde. */
@@ -1054,8 +1102,8 @@ function colorirPreenchimento_(sh, rowIni, rowFim, col) {
     let bg = null;
     // Só "SIM — hoje" é verde. Preencheu só ontem (não hoje) = vermelho. Nada = vermelho forte.
     if (s.indexOf('SIM — HOJE') >= 0)       bg = '#e8f5e9';  // verde — em dia
-    else if (s.indexOf('SIM — ONTEM') >= 0) bg = '#ffcdd2';  // vermelho — não preencheu hoje
-    else if (s.indexOf('NÃO') >= 0)         bg = '#ef9a9a';  // vermelho forte — sem atualizar
+    else if (s.indexOf('SIM — ONTEM') >= 0) bg = '#fff8e1';  // amarelo — normal (preenchem no fim do dia)
+    else if (s.indexOf('NÃO') >= 0)         bg = '#ef9a9a';  // vermelho forte — 2+ dias sem preencher
     if (bg) sh.getRange(rowIni + i, col).setBackground(bg);
   }
 }
@@ -1095,12 +1143,23 @@ function lerModemsAlmox_(cfg, porTt) {
     const tt = normalizarTt_(dados[i][ixTt]);
     if (!tt || !porTt[tt]) continue;
     const serial = ixSerial >= 0 ? String(dados[i][ixSerial] || '').trim().toUpperCase() : '';
-    // ALMOX SERIALIZADA = equipamento com serial. Sem serial (ex.: cabo) não entra no painel modems.
     if (!serial) continue;
     const velocidade = ixVeloc >= 0 ? String(dados[i][ixVeloc] || '').trim() : '';
+    // CABO/DROP têm serial mas pertencem à miscelânia — excluir do painel modems
+    if (ehCaboDropAlmox_(velocidade)) continue;
     out.push({ tt: tt, nome: porTt[tt].nome, velocidade: velocidade, serial: serial });
   }
   return out;
+}
+
+/**
+ * Retorna true se a descrição da ALMOX SERIALIZADA for cabo/drop/fibra —
+ * esses itens têm serial mas pertencem à miscelânia, não ao painel modems.
+ */
+function ehCaboDropAlmox_(descricao) {
+  const t = String(descricao || '').toUpperCase();
+  return t.indexOf('CABO') >= 0 || t.indexOf('DROP') >= 0 ||
+         (t.indexOf('FIBRA') >= 0 && t.indexOf('ONT') < 0);
 }
 
 // ─── Utilitários ─────────────────────────────────────────────────────────────
