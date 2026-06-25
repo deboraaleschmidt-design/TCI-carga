@@ -47,10 +47,14 @@ function atualizarPaineis() {
  * Como FORMS e MATERIAIS são planilhas externas, o Apps Script não recebe onEdit
  * delas — por isso usamos tempo (a cada 15 min) para reler e atualizar sozinho.
  */
-function ativarAtualizacaoFrequente() {
+function instalarGatilhosFrequentes_() {
   desativarGatilhoDiario();
   ScriptApp.newTrigger('atualizarPaineis').timeBased().everyMinutes(15).create();
   ScriptApp.newTrigger('registrarSnapshotMisc').timeBased().everyDays(1).atHour(10).nearMinute(30).create();
+}
+
+function ativarAtualizacaoFrequente() {
+  instalarGatilhosFrequentes_();
   SpreadsheetApp.getUi().alert(
     'Atualização frequente ativada',
     'Os painéis MODEMS e MISCELÂNIA serão atualizados sozinhos a cada 15 minutos,\n' +
@@ -186,8 +190,10 @@ function montarEstruturaInicial() {
     removerFolhasVaziasPadrao_(ss);
     const shIni = ss.getSheetByName('INÍCIO');
     if (shIni) ss.setActiveSheet(shIni);
+    // Atualização automática a cada 15 min já fica ativa por padrão
+    try { instalarGatilhosFrequentes_(); } catch (e) { /* autorização pode faltar; ativar pelo menu */ }
     SpreadsheetApp.flush();
-    ss.toast('Estrutura OK. Próximo: TCI Carga → Tudo.', 'TCI Carga', 12);
+    ss.toast('Estrutura OK + atualização automática ativada (15 min). Próximo: TCI Carga → Tudo.', 'TCI Carga', 12);
   } catch (e) {
     SpreadsheetApp.getUi().alert('Erro', String(e.message || e), SpreadsheetApp.getUi().ButtonSet.OK);
     throw e;
