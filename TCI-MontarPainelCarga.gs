@@ -417,13 +417,10 @@ function ehDrop_(material, agregador, grupo) {
   return t.indexOf('DROP') >= 0;
 }
 
-/** Equipamento que NÃO é miscelânia: modem, roteador, ONU/ONT serializado. */
+/** Equipamento que NÃO é miscelânia: apenas modem. Roteador, ONU e todo o resto são miscelânia. */
 function ehEquipamentoNaoMisc_(grupo, material) {
   const t = [grupo, material].join(' ').toUpperCase();
-  if (t.indexOf('MODEM') >= 0) return true;
-  if (t.indexOf('ROTEADOR') >= 0 || t.indexOf('ROUTER') >= 0) return true;
-  if (t.indexOf('ONU') >= 0) return true;
-  return false;
+  return t.indexOf('MODEM') >= 0;
 }
 
 /** Unidade de medida para o painel: DROP em metros, demais em unidades. */
@@ -723,14 +720,15 @@ function montarPainelModems() {
   if (old) ss.deleteSheet(old);
   const sh = ss.insertSheet(nome, 0);
 
-  titulo_(sh, 'A1:G1', 'PAINEL MODEMS TCI — CARGA POR TT (velocidade × quantidade)');
-  sh.getRange('A2:G2').merge()
+  // 8 colunas: TT | Técnico | Área | Velocidade/Descrição | Qtd por velocidade | Total em carga | Inst. hoje (Forms) | Status
+  titulo_(sh, 'A1:H1', 'PAINEL MODEMS TCI — CARGA POR TT (velocidade × quantidade)');
+  sh.getRange('A2:H2').merge()
     .setValue('Fonte: ALMOX SERIALIZADA + Forms instalação · Somente TT da planilha EQUIPES · Atualizado: ' +
       Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'))
     .setFontStyle('italic').setHorizontalAlignment('center').setFontSize(10);
 
-  cabecalhoTabela_(sh, 'A4:G4', [
-    'TT', 'Técnico', 'Área', 'Velocidade (descrição) e qtd em carga',
+  cabecalhoTabela_(sh, 'A4:H4', [
+    'TT', 'Técnico', 'Área', 'Velocidade / Descrição', 'Qtd por velocidade',
     'Total em carga', 'Inst. hoje (Forms)', 'Status'
   ]);
 
@@ -747,32 +745,40 @@ function montarPainelModems() {
     const form  = forms[tec.tt];
 
     const totalCarga = almox ? almox.total : 0;
-    const veloc = almox
-      ? Object.keys(almox.velocidades).sort().map(function (v) {
-          return (v || '(sem descrição)') + ' = ' + almox.velocidades[v];
-        }).join('\n')
-      : '';
+    // Velocidades e quantidades em colunas separadas (multiline em cada célula correspondente)
+    const velocOrdenadas = almox ? Object.keys(almox.velocidades).sort() : [];
+    const colVeloc = velocOrdenadas.map(function (v) { return v || '(sem descrição)'; }).join('\n');
+    const colQtd   = velocOrdenadas.map(function (v) { return almox.velocidades[v]; }).join('\n');
+
     const qtdForms = form ? form.instalacoes.reduce(function (acc, ins) {
       return acc + ins.seriais.length;
     }, 0) : 0;
 
-    return [tec.tt, tec.nome, tec.area, veloc, totalCarga, qtdForms || '', tec.status];
+    return [tec.tt, tec.nome, tec.area, colVeloc, colQtd, totalCarga, qtdForms || '', tec.status];
   });
 
-  linhas.sort(function (a, b) { return Number(b[4]) - Number(a[4]); });
+  linhas.sort(function (a, b) { return Number(b[5]) - Number(a[5]); });
 
   if (linhas.length) {
-    rangeLinhas_(sh, 5, 1, linhas.length, 7).setValues(linhas);
-    rangeLinhas_(sh, 5, 5, linhas.length, 1).setNumberFormat('#,##0');
+    rangeLinhas_(sh, 5, 1, linhas.length, 8).setValues(linhas);
+    rangeLinhas_(sh, 5, 6, linhas.length, 1).setNumberFormat('#,##0');
     rangeLinhas_(sh, 5, 4, linhas.length, 1).setWrap(true);
+    rangeLinhas_(sh, 5, 5, linhas.length, 1).setWrap(true).setHorizontalAlignment('center');
   }
 
-  [90, 220, 80, 320, 100, 110, 90].forEach(function (w, i) {
+  [90, 220, 80, 280, 100, 100, 110, 90].forEach(function (w, i) {
     sh.setColumnWidth(i + 1, w);
   });
   sh.setFrozenRows(4);
   SpreadsheetApp.flush();
   ss.toast('Painel modems atualizado.', 'TCI Carga', 8);
+}
+
+function ehModemReal_(material, grupo) {
+  const t = [material, grupo].join(' ').toUpperCase();
+  // Inclui apenas modems reais; cabos, drops, conectores e outros são miscelânia
+  if (t.indexOf('MODEM') >= 0) return true;
+  return false;
 }
 
 function lerModemsAlmox_(cfg, porTt) {
@@ -786,16 +792,18 @@ function lerModemsAlmox_(cfg, porTt) {
   const dados = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
   const header = dados[0].map(normalizarTexto_);
 
-  // f/TT → normalizado 'f/tt' → indexOf('tt') ok; 'gestech' para planilhas antigas
-  const ixTt     = indiceColuna_(header, ['f/tt', 'gestech', 'tt']);
-  // Velocidade: descrição do material (ex.: "MODEM 500MB"). Tenta 'velocidade' e cai no texto breve.
-  const ixVeloc  = indiceColuna_(header, ['velocidade', 'plano', 'texto breve material', 'descricao material', 'material']);
+  const ixTt    = indiceColuna_(header, ['f/tt', 'gestech', 'tt']);
+  const ixVeloc = indiceColuna_(header, ['velocidade', 'plano', 'texto breve material', 'descricao material', 'material']);
+  const ixGrupo = indiceColuna_(header, ['grupo material', 'grupo']);
 
   const out = [];
   for (let i = 1; i < dados.length; i++) {
     const tt = normalizarTt_(dados[i][ixTt]);
     if (!tt || !porTt[tt]) continue;
     const velocidade = ixVeloc >= 0 ? String(dados[i][ixVeloc] || '').trim() : '';
+    const grupo      = ixGrupo >= 0 ? String(dados[i][ixGrupo] || '').trim() : '';
+    // Somente modems reais — cabos e outros materiais ficam na miscelânia
+    if (!ehModemReal_(velocidade, grupo)) continue;
     out.push({ tt: tt, nome: porTt[tt].nome, velocidade: velocidade });
   }
   return out;
