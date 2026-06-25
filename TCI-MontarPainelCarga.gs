@@ -722,6 +722,18 @@ function diasSemBaixar_(snapshots, chave) {
  * Lê FORMS e retorna instalações agrupadas por TT.
  * Col A formato: "NOME - TR######"  →  extrai TR  →  busca TT em equipe.porTr
  */
+/**
+ * Lê o Forms de encerradas.
+ * Estrutura confirmada:
+ *   Col A (0) = carimbo automático do Forms (timestamp)
+ *   Col B (1) = data da baixa
+ *   Col D (3) = nome do técnico (usado para cruzar TR / nome)
+ *   Col G (6) = serial baixado/instalado
+ *
+ * Estratégia de cruzamento:
+ *   1. Tenta extrair TR da col D → busca em equipe.porTr
+ *   2. Se não achar, tenta casar por nome (col D) em equipe.porNome
+ */
 function lerFormsInstalados_(cfg, equipe) {
   const ssExt = SpreadsheetApp.openById(cfg.FORMS_ID);
   const sh = ssExt.getSheetByName(cfg.ABA_FORMS);
@@ -730,26 +742,39 @@ function lerFormsInstalados_(cfg, equipe) {
   const last = sh.getLastRow();
   if (last < 2) return {};
 
-  const dados = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
-  const header = dados[0].map(normalizarTexto_);
+  // Lê garantindo pelo menos 7 colunas (G = índice 6)
+  const nCols = Math.max(sh.getLastColumn(), 7);
+  const dados = sh.getRange(1, 1, last, nCols).getValues();
 
-  const ixData     = indiceColuna_(header, ['carimbo de data/hora', 'data/hora']);
-  const ixSerial1  = indiceColuna_(header, ['serial do equipamento instalado 1', 'serial 1']);
-  const ixSerial2  = indiceColuna_(header, ['serial do equipamento instalado 2', 'serial 2']);
-  const ixProtocolo= indiceColuna_(header, ['numero do protocolo', 'protocolo']);
-  const ixTipo     = indiceColuna_(header, ['tipo de servico', 'tipo de servi']);
-  const ixErro     = indiceColuna_(header, ['erro de baixa', 'erro']);
+  // Índices fixos confirmados pela operação (col A=0, B=1, D=3, G=6)
+  const IX_DATA   = 1;  // col B — data da baixa
+  const IX_NOME   = 3;  // col D — nome do técnico
+  const IX_SERIAL = 6;  // col G — serial baixado/instalado
+
+  // Tenta também detectar por cabeçalho como fallback (se a planilha mudar de layout)
+  const header = dados[0].map(normalizarTexto_);
+  const ixDataH   = indiceColuna_(header, ['data da baixa', 'data baixa', 'carimbo de data/hora', 'data/hora']);
+  const ixNomeH   = indiceColuna_(header, ['nome do tecnico', 'tecnico', 'nome tecnico']);
+  const ixSerialH = indiceColuna_(header, ['serial', 'serial do equipamento', 'serial instalado', 'serial baixado']);
+
+  // Usa posição fixa se o cabeçalho não foi reconhecido
+  const ixData   = ixDataH   >= 0 ? ixDataH   : IX_DATA;
+  const ixNome   = ixNomeH   >= 0 ? ixNomeH   : IX_NOME;
+  const ixSerial = ixSerialH >= 0 ? ixSerialH : IX_SERIAL;
 
   const porTt = {};
 
   for (let i = 1; i < dados.length; i++) {
-    const row   = dados[i];
-    const colA  = String(row[0] || '').trim();
-    const tr    = extrairTrDaColA_(colA);
+    const row    = dados[i];
+    const colNome = String(row[ixNome] || '').trim();
+    if (!colNome) continue;
 
-    // 1º tenta cruzar pelo TR; se não achar, cai para o nome (col A traz "NOME - TR######")
+    // Extrai TR do campo nome (ex: "JOAO SILVA - TR12345" ou só "TR12345")
+    const tr = extrairTrDaColA_(colNome);
+
+    // 1º tenta cruzar pelo TR; 2º cai para o nome
     let tec = tr ? equipe.porTr[tr] : null;
-    if (!tec) tec = casarPorNome_(colA, equipe.porNome);
+    if (!tec) tec = casarPorNome_(colNome, equipe.porNome);
     if (!tec) continue;
 
     const tt = tec.tt;
@@ -757,20 +782,15 @@ function lerFormsInstalados_(cfg, equipe) {
       porTt[tt] = { tt: tt, nome: tec.nome, area: tec.area, instalacoes: [] };
     }
 
-    const s1 = String(ixSerial1  >= 0 ? row[ixSerial1]   || '' : '').trim().toUpperCase();
-    const s2 = String(ixSerial2  >= 0 ? row[ixSerial2]   || '' : '').trim().toUpperCase();
-    const seriais = [s1, s2].filter(Boolean);
-    if (!seriais.length) continue;
+    const serial = String(row[ixSerial] || '').trim().toUpperCase();
+    if (!serial) continue;
 
-    const dataRaw = ixData >= 0 ? row[ixData] : '';
+    const dataRaw = row[ixData];
     const dataIso = formatarDataIso_(dataRaw);
 
     porTt[tt].instalacoes.push({
-      data:      dataIso,
-      protocolo: ixProtocolo >= 0 ? String(row[ixProtocolo] || '') : '',
-      tipo:      ixTipo      >= 0 ? String(row[ixTipo]      || '') : '',
-      erro:      ixErro      >= 0 ? String(row[ixErro]      || '') : '',
-      seriais:   seriais
+      data:    dataIso,
+      seriais: [serial]
     });
   }
   return porTt;
