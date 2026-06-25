@@ -12,7 +12,7 @@
  * Planilhas fonte (produção):
  *   MATERIAIS — BASE MICELANEAS / ALMOX SERIALIZADA
  *   EQUIPES   — lista TT dos técnicos TCI (Página4)
- *   FORMS     — instalações do dia (Respostas ao formulário 1)
+ *   FORMS     — instalações do dia (ENCERRADO OK - INSTALAÇÃO (respostas))
  */
 function onOpen() {
   SpreadsheetApp.getUi()
@@ -26,6 +26,7 @@ function onOpen() {
     .addItem('Atualizar painel modems', 'montarPainelModems')
     .addSeparator()
     .addItem('Tudo (snapshot + painéis)', 'atualizarTudo')
+    .addItem('Diagnóstico — o que está carregando', 'diagnosticar')
     .addSeparator()
     .addItem('Mostrar link gerencial (Web App)', 'mostrarLinkWebApp')
     .addSeparator()
@@ -273,6 +274,92 @@ function atualizarTudo() {
   montarPainelMiscelania();
   montarPainelModems();
   obterPlanilha_().toast('Snapshot e painéis atualizados.', 'TCI Carga', 8);
+}
+
+/**
+ * Diagnóstico completo: verifica fontes, conta itens, mostra o que está chegando.
+ * Use quando DROP/CUNHA sumem ou Forms aparece zerado.
+ */
+function diagnosticar() {
+  const ui  = SpreadsheetApp.getUi();
+  const cfg = lerConfig_();
+  const msgs = [];
+
+  // ── 1. EQUIPES ──
+  try {
+    const eq = carregarEquipeTci_(cfg);
+    msgs.push('✅ EQUIPES: ' + eq.lista.length + ' técnico(s) carregado(s).');
+    if (eq.lista.length > 0) {
+      msgs.push('   Primeiros TTs: ' + eq.lista.slice(0, 4).map(function (t) { return t.tt; }).join(', '));
+    }
+  } catch (e) { msgs.push('❌ EQUIPES erro: ' + e.message); }
+
+  // ── 2. FORMS ──
+  try {
+    const ssF = SpreadsheetApp.openById(cfg.FORMS_ID);
+    const shF = ssF.getSheetByName(cfg.ABA_FORMS);
+    if (!shF) {
+      const abas = ssF.getSheets().map(function (s) { return '"' + s.getName() + '"'; }).join(', ');
+      msgs.push('❌ FORMS: aba "' + cfg.ABA_FORMS + '" não encontrada.');
+      msgs.push('   Abas disponíveis: ' + abas);
+    } else {
+      const linhas = shF.getLastRow() - 1;
+      msgs.push('✅ FORMS: aba encontrada · ' + linhas + ' linhas de respostas.');
+      // Mostra os cabeçalhos para facilitar debug de colunas
+      if (shF.getLastRow() >= 1) {
+        const cab = shF.getRange(1, 1, 1, Math.min(shF.getLastColumn(), 10)).getValues()[0];
+        msgs.push('   Cabeçalhos (cols A-J): ' + cab.map(function (v, i) {
+          return String.fromCharCode(65 + i) + '="' + String(v || '').substring(0, 20) + '"';
+        }).join(' | '));
+      }
+    }
+  } catch (e) { msgs.push('❌ FORMS erro: ' + e.message); }
+
+  // ── 3. BASE MICELANEAS (por categoria) ──
+  try {
+    const eq2 = carregarEquipeTci_(cfg);
+    const itens = lerMiscFiltrada_(cfg, eq2.porTt);
+    const contCat = {};
+    CATS_MISC_.forEach(function (c) { contCat[c.key] = 0; });
+    var semCat = 0;
+    itens.forEach(function (it) {
+      const cat = categoriaMisc_(it.material, it.agregador, it.grupo);
+      if (cat) contCat[cat] = (contCat[cat] || 0) + 1;
+      else semCat++;
+    });
+    msgs.push('✅ BASE MICELANEAS: ' + itens.length + ' itens com saldo > 0 (TTs da equipe).');
+    CATS_MISC_.forEach(function (c) {
+      msgs.push('   ' + c.label + ': ' + (contCat[c.key] || 0) + ' linha(s)');
+    });
+    msgs.push('   Sem categoria (CABO genérico, outros): ' + semCat);
+    if (itens.length > 0) {
+      var exemplos = itens.slice(0, 3).map(function (it) {
+        return '"' + it.material.substring(0, 30) + '" | agr:"' + (it.agregador || '').substring(0, 15) + '"';
+      });
+      msgs.push('   Exemplos: ' + exemplos.join(' // '));
+    }
+  } catch (e) { msgs.push('❌ BASE MICELANEAS erro: ' + e.message); }
+
+  // ── 4. HISTORICO MISC ──
+  try {
+    const ss = obterPlanilha_();
+    const shH = ss.getSheetByName('HISTORICO MISC');
+    if (!shH || shH.getLastRow() < 2) {
+      msgs.push('⚠️  HISTORICO MISC: vazio ou não existe — rode "Registrar snapshot de hoje" antes.');
+    } else {
+      const snaps = lerSnapshots_(shH);
+      msgs.push('✅ HISTORICO MISC: ' + (shH.getLastRow() - 1) + ' linhas · datas: ' + snaps.datas.join(', '));
+    }
+  } catch (e) { msgs.push('❌ HISTORICO MISC erro: ' + e.message); }
+
+  // ── 5. ALMOX SERIALIZADA ──
+  try {
+    const eq3 = carregarEquipeTci_(cfg);
+    const modems = lerModemsAlmox_(cfg, eq3.porTt);
+    msgs.push('✅ ALMOX SERIALIZADA: ' + modems.length + ' seriais de equip (ONT/MESH/MODEM).');
+  } catch (e) { msgs.push('❌ ALMOX SERIALIZADA erro: ' + e.message); }
+
+  ui.alert('Diagnóstico TCI Carga', msgs.join('\n'), ui.ButtonSet.OK);
 }
 
 /** Planilha painel TCI Carga */
