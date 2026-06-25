@@ -80,16 +80,19 @@ function obterPlanilha_() {
 }
 
 function testeGravarB2() {
-  var ss = SpreadsheetApp.openById(PAINEL_ID_);
+  // NÃO escreve em B2 (= MATERIAIS_ID). Usa célula isolada E1 para não corromper CONFIG.
+  var ss = obterPlanilha_();
   var sh = ss.getSheetByName('CONFIG') || ss.insertSheet('CONFIG');
-  sh.getRange('A1').setValue('Chave');
-  sh.getRange('B1').setValue('Valor');
-  sh.getRange('A2').setValue('MATERIAIS_ID');
-  sh.getRange('B2').setValue('OK-TESTE-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HH:mm'));
+  var marca = 'OK-TESTE-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HH:mm:ss');
+  sh.getRange('E1').setValue('Teste gravação:');
+  sh.getRange('F1').setValue(marca);
   SpreadsheetApp.flush();
+  ss.setActiveSheet(sh);
   SpreadsheetApp.getUi().alert(
     'Teste',
-    'Abra aba CONFIG.\nB2 deve mostrar OK-TESTE-...\n\nSe B2 continuar vazio, o Apps Script NÃO está ligado a esta planilha.',
+    'Planilha: ' + ss.getName() + '\nAba CONFIG, célula F1 deve mostrar:\n' + marca +
+      '\n\nSe F1 continuar vazio, o Apps Script NÃO está ligado a esta planilha.' +
+      '\n\nObs: este teste NÃO altera os IDs (B2 etc.).',
     SpreadsheetApp.getUi().ButtonSet.OK
   );
 }
