@@ -800,7 +800,10 @@ function categoriaChave_(material, agregador) {
  */
 function categoriaMisc_(material, agregador, grupo) {
   const t = [material, agregador, grupo].join(' ').toUpperCase();
-  if (t.indexOf('CONECTOR') >= 0) return 'CONECTOR';
+  // CONECTOR: interno e externo são materiais diferentes
+  if (t.indexOf('CONECTOR') >= 0 && t.indexOf('INTERN') >= 0) return 'CONECTOR INTERNO';
+  if (t.indexOf('CONECTOR') >= 0 && t.indexOf('EXTERN') >= 0) return 'CONECTOR EXTERNO';
+  if (t.indexOf('CONECTOR') >= 0)                              return 'CONECTOR INTERNO';
   if (t.indexOf('PLAQUETA')  >= 0) return 'PLAQUETA';
   if (t.indexOf('CUNHA')     >= 0) return 'CUNHA';
   if (ehRolo500_(material, agregador)) return 'DROP ROLO';
@@ -810,17 +813,18 @@ function categoriaMisc_(material, agregador, grupo) {
 
 /** Colunas do resumo de miscelânia por técnico, na ordem de exibição. */
 var CATS_MISC_ = [
-  { key: 'DROP PECAS', label: 'DROP peças (un)', medida: 'un' },
-  { key: 'DROP ROLO',  label: 'DROP rolo 500m (m)', medida: 'metros' },
-  { key: 'CONECTOR',   label: 'CONECTOR (un)', medida: 'un' },
-  { key: 'PLAQUETA',   label: 'PLAQUETA (un)', medida: 'un' },
-  { key: 'CUNHA',      label: 'CUNHA (un)', medida: 'un' }
+  { key: 'DROP PECAS',       label: 'DROP peças (un)',       medida: 'un'     },
+  { key: 'DROP ROLO',        label: 'DROP rolo 500m (m)',    medida: 'metros' },
+  { key: 'CONECTOR INTERNO', label: 'CONECTOR interno (un)', medida: 'un'     },
+  { key: 'CONECTOR EXTERNO', label: 'CONECTOR externo (un)', medida: 'un'     },
+  { key: 'PLAQUETA',         label: 'PLAQUETA (un)',         medida: 'un'     },
+  { key: 'CUNHA',            label: 'CUNHA (un)',            medida: 'un'     }
 ];
 
 /** Ordem de exibição da seção materiais-chave. */
 var ORDEM_CHAVE_ = [
   'CABO / DROP (peças)', 'CABO ROLO 500M',
-  'CONECTOR', 'PLAQUETA', 'ESTICADOR / ANEL', 'CUNHA'
+  'CONECTOR INTERNO', 'CONECTOR EXTERNO', 'PLAQUETA', 'ESTICADOR / ANEL', 'CUNHA'
 ];
 
 /** Medida de cada categoria-chave. */
