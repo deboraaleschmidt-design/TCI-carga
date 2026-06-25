@@ -61,16 +61,24 @@ function lerConfig_() {
   vals.forEach(function (row) {
     if (row[0]) map[String(row[0]).trim()] = String(row[1] || '').trim();
   });
+  // Se o ID em CONFIG estiver inválido (ex.: OK-TESTE-... de um teste antigo),
+  // ignora e usa o ID de produção. Assim o painel se conserta sozinho.
   return {
-    MATERIAIS_ID: map.MATERIAIS_ID || CFG_PADRAO_.MATERIAIS_ID,
-    EQUIPES_ID:   map.EQUIPES_ID   || CFG_PADRAO_.EQUIPES_ID,
-    FORMS_ID:     map.FORMS_ID     || CFG_PADRAO_.FORMS_ID,
+    MATERIAIS_ID: idValido_(map.MATERIAIS_ID) ? map.MATERIAIS_ID : CFG_PADRAO_.MATERIAIS_ID,
+    EQUIPES_ID:   idValido_(map.EQUIPES_ID)   ? map.EQUIPES_ID   : CFG_PADRAO_.EQUIPES_ID,
+    FORMS_ID:     idValido_(map.FORMS_ID)     ? map.FORMS_ID     : CFG_PADRAO_.FORMS_ID,
     ABA_MISC:     map.ABA_MISC     || CFG_PADRAO_.ABA_MISC,
     ABA_ALMOX:    map.ABA_ALMOX    || CFG_PADRAO_.ABA_ALMOX,
     ABA_EQUIPES:  map.ABA_EQUIPES  || CFG_PADRAO_.ABA_EQUIPES,
     GID_EQUIPES:  map.GID_EQUIPES  || CFG_PADRAO_.GID_EQUIPES,
     ABA_FORMS:    map.ABA_FORMS    || CFG_PADRAO_.ABA_FORMS
   };
+}
+
+/** ID de planilha Google: só letras, dígitos, _ e -, e tamanho >= 30. */
+function idValido_(v) {
+  const s = String(v || '').trim();
+  return /^[A-Za-z0-9_-]{30,}$/.test(s);
 }
 
 function obterPlanilha_() {
