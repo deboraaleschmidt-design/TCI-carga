@@ -252,7 +252,7 @@ var CFG_PADRAO_ = {
   ABA_ALMOX:    'ALMOX SERIALIZADA',
   ABA_EQUIPES:  'FERNANDA TT TR TELEFONE',
   GID_EQUIPES:  '1514437459',
-  ABA_FORMS:    'Respostas ao formulário 1',
+  ABA_FORMS:    'ENCERRADO OK - INSTALAÇÃO (respostas)',
   COL_SALDO_MISC: 'Y'   // coluna do saldo atual na BASE MICELANEAS (após atualização diária)
 };
 
@@ -276,7 +276,9 @@ function lerConfig_() {
     ABA_ALMOX:    map.ABA_ALMOX    || CFG_PADRAO_.ABA_ALMOX,
     ABA_EQUIPES:  map.ABA_EQUIPES  || CFG_PADRAO_.ABA_EQUIPES,
     GID_EQUIPES:  map.GID_EQUIPES  || CFG_PADRAO_.GID_EQUIPES,
-    ABA_FORMS:    map.ABA_FORMS    || CFG_PADRAO_.ABA_FORMS,
+    // Ignora o nome de aba antigo ('Respostas ao formulário 1') que ficou em CONFIG de versões anteriores
+    ABA_FORMS:    (map.ABA_FORMS && map.ABA_FORMS.indexOf('Respostas ao formul') < 0)
+                    ? map.ABA_FORMS : CFG_PADRAO_.ABA_FORMS,
     COL_SALDO_MISC: map.COL_SALDO_MISC || CFG_PADRAO_.COL_SALDO_MISC
   };
 }
@@ -471,6 +473,8 @@ function carregarEquipeTci_(cfg) {
   const porTt = {};
   const porTr = {};
   const porNome = {};
+  const porPrimeiro = {};          // primeiro nome → item (Forms traz só o 1º nome)
+  const primeiroAmbiguo = {};      // primeiros nomes que se repetem em 2+ técnicos
   const lista = [];
 
   for (let i = 1; i < dados.length; i++) {
@@ -490,9 +494,16 @@ function carregarEquipeTci_(cfg) {
     if (tr) porTr[tr] = item;
     const chaveNome = chaveNome_(nome);
     if (chaveNome) porNome[chaveNome] = item;
+    const primeiro = chaveNome.split(' ')[0];
+    if (primeiro) {
+      if (porPrimeiro[primeiro] && porPrimeiro[primeiro].tt !== tt) primeiroAmbiguo[primeiro] = true;
+      else porPrimeiro[primeiro] = item;
+    }
     lista.push(item);
   }
-  return { lista: lista, porTt: porTt, porTr: porTr, porNome: porNome };
+  // remove primeiros nomes ambíguos (não dá pra cruzar com segurança)
+  Object.keys(primeiroAmbiguo).forEach(function (p) { delete porPrimeiro[p]; });
+  return { lista: lista, porTt: porTt, porTr: porTr, porNome: porNome, porPrimeiro: porPrimeiro };
 }
 
 /** Chave de nome normalizada (sem acento, maiúsculo, espaços colapsados) para fallback de cruzamento. */
@@ -746,35 +757,37 @@ function lerFormsInstalados_(cfg, equipe) {
   const nCols = Math.max(sh.getLastColumn(), 7);
   const dados = sh.getRange(1, 1, last, nCols).getValues();
 
-  // Índices fixos confirmados pela operação (col A=0, B=1, D=3, G=6)
-  const IX_DATA   = 1;  // col B — data da baixa
-  const IX_NOME   = 3;  // col D — nome do técnico
-  const IX_SERIAL = 6;  // col G — serial baixado/instalado
+  // Índices fixos confirmados pela operação:
+  //   col B (1) = data da baixa · col D (3) = nome do técnico (só 1º nome)
+  //   col G (6) = serial instalado 1 · col H (7) = serial instalado 2 (roteador junto)
+  const IX_DATA    = 1;
+  const IX_NOME    = 3;
+  const IX_SERIAL1 = 6;
+  const IX_SERIAL2 = 7;
 
-  // Tenta também detectar por cabeçalho como fallback (se a planilha mudar de layout)
+  // Fallback por cabeçalho, caso a planilha mude de layout
   const header = dados[0].map(normalizarTexto_);
-  const ixDataH   = indiceColuna_(header, ['data da baixa', 'data baixa', 'carimbo de data/hora', 'data/hora']);
-  const ixNomeH   = indiceColuna_(header, ['nome do tecnico', 'tecnico', 'nome tecnico']);
-  const ixSerialH = indiceColuna_(header, ['serial', 'serial do equipamento', 'serial instalado', 'serial baixado']);
+  const ixDataH    = indiceColuna_(header, ['data da baixa', 'data baixa', 'carimbo de data/hora', 'data/hora']);
+  const ixNomeH    = indiceColuna_(header, ['nome do tecnico', 'tecnico', 'nome tecnico']);
+  const ixSerial1H = indiceColuna_(header, ['serial do equipamento instalado 1', 'serial instalado 1', 'serial 1']);
+  const ixSerial2H = indiceColuna_(header, ['serial do equipamento instalado 2', 'serial instalado 2', 'serial 2']);
 
-  // Usa posição fixa se o cabeçalho não foi reconhecido
-  const ixData   = ixDataH   >= 0 ? ixDataH   : IX_DATA;
-  const ixNome   = ixNomeH   >= 0 ? ixNomeH   : IX_NOME;
-  const ixSerial = ixSerialH >= 0 ? ixSerialH : IX_SERIAL;
+  const ixData    = ixDataH    >= 0 ? ixDataH    : IX_DATA;
+  const ixNome    = ixNomeH    >= 0 ? ixNomeH    : IX_NOME;
+  const ixSerial1 = ixSerial1H >= 0 ? ixSerial1H : IX_SERIAL1;
+  const ixSerial2 = ixSerial2H >= 0 ? ixSerial2H : IX_SERIAL2;
 
   const porTt = {};
 
   for (let i = 1; i < dados.length; i++) {
-    const row    = dados[i];
+    const row     = dados[i];
     const colNome = String(row[ixNome] || '').trim();
     if (!colNome) continue;
 
-    // Extrai TR do campo nome (ex: "JOAO SILVA - TR12345" ou só "TR12345")
+    // Cruza: 1º por TR (se houver no texto); 2º por nome (inclui só 1º nome)
     const tr = extrairTrDaColA_(colNome);
-
-    // 1º tenta cruzar pelo TR; 2º cai para o nome
     let tec = tr ? equipe.porTr[tr] : null;
-    if (!tec) tec = casarPorNome_(colNome, equipe.porNome);
+    if (!tec) tec = casarPorNome_(colNome, equipe.porNome, equipe.porPrimeiro);
     if (!tec) continue;
 
     const tt = tec.tt;
@@ -782,15 +795,17 @@ function lerFormsInstalados_(cfg, equipe) {
       porTt[tt] = { tt: tt, nome: tec.nome, area: tec.area, instalacoes: [] };
     }
 
-    const serial = String(row[ixSerial] || '').trim().toUpperCase();
-    if (!serial) continue;
+    // Conta serial 1 (col G) E serial 2 (col H) — quando vai roteador junto, são 2 baixados
+    const s1 = String(row[ixSerial1] || '').trim().toUpperCase();
+    const s2 = String(row[ixSerial2] || '').trim().toUpperCase();
+    const seriais = [s1, s2].filter(Boolean);
+    if (!seriais.length) continue;
 
-    const dataRaw = row[ixData];
-    const dataIso = formatarDataIso_(dataRaw);
+    const dataIso = formatarDataIso_(row[ixData]);
 
     porTt[tt].instalacoes.push({
       data:    dataIso,
-      seriais: [serial]
+      seriais: seriais
     });
   }
   return porTt;
@@ -806,7 +821,7 @@ function extrairTrDaColA_(v) {
  * Pega a parte de nome da col A (antes do " - TR..."), normaliza e procura em porNome.
  * Tenta nome completo e depois primeiro+último token.
  */
-function casarPorNome_(colA, porNome) {
+function casarPorNome_(colA, porNome, porPrimeiro) {
   if (!porNome) return null;
   let s = String(colA || '');
   s = s.replace(/\bT[RT]\d+\b/ig, ' ');          // remove códigos TR/TT
@@ -814,18 +829,24 @@ function casarPorNome_(colA, porNome) {
   const chave = chaveNome_(s);
   if (!chave) return null;
   if (porNome[chave]) return porNome[chave];
-  // tenta primeiro + último nome
+
   const toks = chave.split(' ').filter(Boolean);
+
+  // tenta primeiro + último nome
   if (toks.length >= 2) {
     const reduzida = toks[0] + ' ' + toks[toks.length - 1];
     if (porNome[reduzida]) return porNome[reduzida];
-  }
-  // tenta achar uma chave que comece pelo mesmo primeiro+segundo nome
-  if (toks.length >= 2) {
+    // tenta achar uma chave que comece pelo mesmo primeiro+segundo nome
     const prefixo = toks[0] + ' ' + toks[1];
     const achou = Object.keys(porNome).find(function (k) { return k.indexOf(prefixo) === 0; });
     if (achou) return porNome[achou];
   }
+
+  // Forms traz só o 1º nome (ex.: "VANIO") → cruza pelo índice de primeiro nome
+  // (porPrimeiro já exclui primeiros nomes repetidos em 2+ técnicos)
+  const primeiro = toks[0];
+  if (primeiro && porPrimeiro && porPrimeiro[primeiro]) return porPrimeiro[primeiro];
+
   return null;
 }
 
