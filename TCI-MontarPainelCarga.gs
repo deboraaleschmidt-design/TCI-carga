@@ -28,8 +28,36 @@ function onOpen() {
     .addItem('Tudo (snapshot + painéis)', 'atualizarTudo')
     .addSeparator()
     .addItem('Ativar atualização automática diária (10h30)', 'ativarGatilhoDiario')
+    .addItem('Ativar atualização frequente (a cada 15 min)', 'ativarAtualizacaoFrequente')
     .addItem('Desativar atualização automática', 'desativarGatilhoDiario')
     .addToUi();
+}
+
+/**
+ * Atualiza só os painéis (sem registrar novo snapshot).
+ * Usado pelo gatilho frequente — lê FORMS e MATERIAIS atualizados e redesenha.
+ */
+function atualizarPaineis() {
+  montarPainelMiscelania();
+  montarPainelModems();
+}
+
+/**
+ * Gatilho a cada 15 min: reflete mudanças do FORMS e da BASE MATERIAIS no painel.
+ * Como FORMS e MATERIAIS são planilhas externas, o Apps Script não recebe onEdit
+ * delas — por isso usamos tempo (a cada 15 min) para reler e atualizar sozinho.
+ */
+function ativarAtualizacaoFrequente() {
+  desativarGatilhoDiario();
+  ScriptApp.newTrigger('atualizarPaineis').timeBased().everyMinutes(15).create();
+  ScriptApp.newTrigger('registrarSnapshotMisc').timeBased().everyDays(1).atHour(10).nearMinute(30).create();
+  SpreadsheetApp.getUi().alert(
+    'Atualização frequente ativada',
+    'Os painéis MODEMS e MISCELÂNIA serão atualizados sozinhos a cada 15 minutos,\n' +
+    'refletindo automaticamente o que mudar no FORMS e na BASE MATERIAIS.\n\n' +
+    'O snapshot de miscelânia (comparativo ontem×hoje) continua 1x/dia às 10h30.',
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
 }
 
 /** Cria gatilho diário que roda atualizarTudo automaticamente (~10h30). */
@@ -46,8 +74,9 @@ function ativarGatilhoDiario() {
 }
 
 function desativarGatilhoDiario() {
+  const alvos = { atualizarTudo: 1, atualizarPaineis: 1, registrarSnapshotMisc: 1 };
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'atualizarTudo') ScriptApp.deleteTrigger(t);
+    if (alvos[t.getHandlerFunction()]) ScriptApp.deleteTrigger(t);
   });
 }
 
@@ -798,6 +827,40 @@ function montarPainelModems() {
     sh.setColumnWidth(i + 1, w);
   });
   sh.setFrozenRows(4);
+
+  // ── Totalizador: carga TCI por equipamento/ONT (soma de todos os técnicos) ──
+  const totalPorEquip = {};
+  modems.forEach(function (m) {
+    if (m.serial && instaladosHoje[m.serial]) return; // já baixado hoje, fora da carga
+    const v = m.velocidade || '(sem descrição)';
+    totalPorEquip[v] = (totalPorEquip[v] || 0) + 1;
+  });
+
+  let rTot = 5 + (linhas.length ? linhas.length : 0) + 2;
+  sh.getRange(rTot, 1).setValue('TOTAL TCI EM CARGA POR EQUIPAMENTO / ONT (toda a equipe)')
+    .setFontWeight('bold').setFontSize(11);
+  rTot++;
+  cabecalhoTabela_(sh, 'A' + rTot + ':B' + rTot, ['Equipamento / Velocidade', 'Total TCI em carga']);
+  const rTotCab = rTot;
+  rTot++;
+
+  const totEquipLinhas = Object.keys(totalPorEquip).sort(function (a, b) {
+    return totalPorEquip[b] - totalPorEquip[a];
+  }).map(function (v) { return [v, totalPorEquip[v]]; });
+
+  let totalGeral = 0;
+  totEquipLinhas.forEach(function (l) { totalGeral += Number(l[1]); });
+
+  if (totEquipLinhas.length) {
+    rangeLinhas_(sh, rTot, 1, totEquipLinhas.length, 2).setValues(totEquipLinhas);
+    rangeLinhas_(sh, rTot, 2, totEquipLinhas.length, 1).setNumberFormat('#,##0');
+    const fimTot = rTot + totEquipLinhas.length - 1;
+    sh.getRange(fimTot + 1, 1).setValue('TOTAL GERAL TCI').setFontWeight('bold');
+    sh.getRange(fimTot + 1, 2).setValue(totalGeral).setFontWeight('bold').setNumberFormat('#,##0');
+    sh.getRange('A' + rTotCab + ':B' + (fimTot + 1)).setBorder(
+      true, true, true, true, true, true, '#9e9e9e', SpreadsheetApp.BorderStyle.SOLID);
+  }
+
   SpreadsheetApp.flush();
   ss.toast('Painel modems atualizado.', 'TCI Carga', 8);
 }
