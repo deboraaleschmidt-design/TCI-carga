@@ -26,7 +26,29 @@ function onOpen() {
     .addItem('Atualizar painel modems', 'montarPainelModems')
     .addSeparator()
     .addItem('Tudo (snapshot + painéis)', 'atualizarTudo')
+    .addSeparator()
+    .addItem('Ativar atualização automática diária (10h30)', 'ativarGatilhoDiario')
+    .addItem('Desativar atualização automática', 'desativarGatilhoDiario')
     .addToUi();
+}
+
+/** Cria gatilho diário que roda atualizarTudo automaticamente (~10h30). */
+function ativarGatilhoDiario() {
+  desativarGatilhoDiario();
+  ScriptApp.newTrigger('atualizarTudo')
+    .timeBased().everyDays(1).atHour(10).nearMinute(30).create();
+  SpreadsheetApp.getUi().alert(
+    'Automático ativado',
+    'Os painéis serão atualizados sozinhos todo dia por volta das 10h30.\n' +
+    'Garanta que a BASE MICELANEAS já esteja colada antes desse horário.',
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+
+function desativarGatilhoDiario() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'atualizarTudo') ScriptApp.deleteTrigger(t);
+  });
 }
 
 function atualizarTudo() {
@@ -352,7 +374,8 @@ function lerMiscFiltrada_(cfg, porTt) {
     const grupo    = String(row[ix.grupo] || '');
     const material = String(row[ix.mat]   || '');
     const sub      = ix.sub >= 0 ? String(row[ix.sub] || '') : '';
-    if (ehOnt_(grupo, sub, material)) continue;
+    // Miscelânia = tudo que NÃO é equipamento (modem, ONT, roteador). Só material complementar.
+    if (ehOnt_(grupo, sub, material) || ehEquipamentoNaoMisc_(grupo, material)) continue;
 
     const saldo = parseNumero_(row[ix.saldo]);
     if (saldo <= 0) continue;
@@ -392,6 +415,20 @@ function ehOnt_(grupo, subsegmento, material) {
 function ehDrop_(material, agregador, grupo) {
   const t = [material, agregador, grupo].join(' ').toUpperCase();
   return t.indexOf('DROP') >= 0;
+}
+
+/** Equipamento que NÃO é miscelânia: modem, roteador, ONU/ONT serializado. */
+function ehEquipamentoNaoMisc_(grupo, material) {
+  const t = [grupo, material].join(' ').toUpperCase();
+  if (t.indexOf('MODEM') >= 0) return true;
+  if (t.indexOf('ROTEADOR') >= 0 || t.indexOf('ROUTER') >= 0) return true;
+  if (t.indexOf('ONU') >= 0) return true;
+  return false;
+}
+
+/** Unidade de medida para o painel: DROP em metros, demais em unidades. */
+function medidaMaterial_(material, agregador, grupo) {
+  return ehDrop_(material, agregador, grupo) ? 'metros' : 'un';
 }
 
 // ─── Forms instalados do dia ─────────────────────────────────────────────────
@@ -495,7 +532,7 @@ function montarPainelMiscelania() {
   sh.getRange(row, 1).setValue('DETALHE POR TÉCNICO E MATERIAL').setFontWeight('bold').setFontSize(11);
   row++;
   const cab = [
-    'TT', 'Técnico', 'Área', 'Segmento', 'Material', 'Grupo', 'DROP?',
+    'TT', 'Técnico', 'Área', 'Segmento', 'Material', 'Grupo', 'Medida',
     'Saldo ontem', 'Saldo hoje', 'Variação', 'Situação'
   ];
   cabecalhoTabela_(sh, 'A' + row + ':K' + row, cab);
@@ -539,7 +576,7 @@ function montarPainelMiscelania() {
       ref.segmento || '',
       ref.material,
       ref.grupo,
-      ehDrop_(ref.material, ref.agregador, ref.grupo) ? 'SIM' : '',
+      medidaMaterial_(ref.material, ref.agregador, ref.grupo),
       dataOntem ? saldoOntem : '',
       saldoHoje,
       dataOntem ? variacao   : '',
@@ -686,70 +723,51 @@ function montarPainelModems() {
   if (old) ss.deleteSheet(old);
   const sh = ss.insertSheet(nome, 0);
 
-  titulo_(sh, 'A1:I1', 'PAINEL MODEMS TCI — CARGA POR TT (Almox + instalados Forms)');
-  sh.getRange('A2:I2').merge()
+  titulo_(sh, 'A1:G1', 'PAINEL MODEMS TCI — CARGA POR TT (velocidade × quantidade)');
+  sh.getRange('A2:G2').merge()
     .setValue('Fonte: ALMOX SERIALIZADA + Forms instalação · Somente TT da planilha EQUIPES · Atualizado: ' +
       Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'))
     .setFontStyle('italic').setHorizontalAlignment('center').setFontSize(10);
 
-  cabecalhoTabela_(sh, 'A4:I4', [
-    'TT', 'Técnico', 'Área', 'Qtd almox', 'Seriais (almox)',
-    'Tipo material', 'Inst. hoje (Forms)', 'Seriais instalados', 'Status'
+  cabecalhoTabela_(sh, 'A4:G4', [
+    'TT', 'Técnico', 'Área', 'Velocidade (descrição) e qtd em carga',
+    'Total em carga', 'Inst. hoje (Forms)', 'Status'
   ]);
 
-  // Agrupa modems almox por TT
+  // Agrupa por TT e por velocidade (descrição do material)
   const porTt = {};
   modems.forEach(function (m) {
-    if (!porTt[m.tt]) {
-      porTt[m.tt] = {
-        tt:      m.tt,
-        nome:    m.nome,
-        seriais: [],
-        tipos:   {}
-      };
-    }
-    porTt[m.tt].seriais.push(m.serial);
-    porTt[m.tt].tipos[m.tipo] = (porTt[m.tt].tipos[m.tipo] || 0) + 1;
+    if (!porTt[m.tt]) porTt[m.tt] = { velocidades: {}, total: 0 };
+    porTt[m.tt].velocidades[m.velocidade] = (porTt[m.tt].velocidades[m.velocidade] || 0) + 1;
+    porTt[m.tt].total += 1;
   });
 
   const linhas = equipe.lista.map(function (tec) {
     const almox = porTt[tec.tt];
     const form  = forms[tec.tt];
 
-    const qtdAlmox = almox ? almox.seriais.length : 0;
-    const serialAlmox = almox ? almox.seriais.join(', ') : '';
-    const tipos = almox
-      ? Object.keys(almox.tipos).map(function (t) { return t + ' (' + almox.tipos[t] + ')'; }).join(', ')
+    const totalCarga = almox ? almox.total : 0;
+    const veloc = almox
+      ? Object.keys(almox.velocidades).sort().map(function (v) {
+          return (v || '(sem descrição)') + ' = ' + almox.velocidades[v];
+        }).join('\n')
       : '';
-
     const qtdForms = form ? form.instalacoes.reduce(function (acc, ins) {
       return acc + ins.seriais.length;
     }, 0) : 0;
-    const serialForms = form ? form.instalacoes.map(function (ins) {
-      return ins.seriais.join(', ');
-    }).join(' | ') : '';
 
-    return [
-      tec.tt,
-      tec.nome,
-      tec.area,
-      qtdAlmox,
-      serialAlmox,
-      tipos,
-      qtdForms || '',
-      serialForms,
-      tec.status
-    ];
+    return [tec.tt, tec.nome, tec.area, veloc, totalCarga, qtdForms || '', tec.status];
   });
 
-  linhas.sort(function (a, b) { return Number(b[3]) - Number(a[3]); });
+  linhas.sort(function (a, b) { return Number(b[4]) - Number(a[4]); });
 
   if (linhas.length) {
-    rangeLinhas_(sh, 5, 1, linhas.length, 9).setValues(linhas);
-    rangeLinhas_(sh, 5, 4, linhas.length, 1).setNumberFormat('#,##0');
+    rangeLinhas_(sh, 5, 1, linhas.length, 7).setValues(linhas);
+    rangeLinhas_(sh, 5, 5, linhas.length, 1).setNumberFormat('#,##0');
+    rangeLinhas_(sh, 5, 4, linhas.length, 1).setWrap(true);
   }
 
-  [90, 220, 80, 70, 350, 180, 90, 350, 80].forEach(function (w, i) {
+  [90, 220, 80, 320, 100, 110, 90].forEach(function (w, i) {
     sh.setColumnWidth(i + 1, w);
   });
   sh.setFrozenRows(4);
@@ -768,25 +786,17 @@ function lerModemsAlmox_(cfg, porTt) {
   const dados = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
   const header = dados[0].map(normalizarTexto_);
 
-  // f/SERIAL → normalizado 'f/serial' → indexOf('serial') ok
-  const ixSerial = indiceColuna_(header, ['serial', 'nº de serie', 'nº de serie']);
   // f/TT → normalizado 'f/tt' → indexOf('tt') ok; 'gestech' para planilhas antigas
   const ixTt     = indiceColuna_(header, ['f/tt', 'gestech', 'tt']);
-  // f/Texto breve material
-  const ixTipo   = indiceColuna_(header, ['texto breve material', 'tipo de material']);
+  // Velocidade: descrição do material (ex.: "MODEM 500MB"). Tenta 'velocidade' e cai no texto breve.
+  const ixVeloc  = indiceColuna_(header, ['velocidade', 'plano', 'texto breve material', 'descricao material', 'material']);
 
   const out = [];
   for (let i = 1; i < dados.length; i++) {
     const tt = normalizarTt_(dados[i][ixTt]);
     if (!tt || !porTt[tt]) continue;
-    const serial = String(dados[i][ixSerial] || '').trim();
-    if (!serial) continue;
-    out.push({
-      tt:     tt,
-      nome:   porTt[tt].nome,
-      serial: serial,
-      tipo:   ixTipo >= 0 ? String(dados[i][ixTipo] || '').trim() : ''
-    });
+    const velocidade = ixVeloc >= 0 ? String(dados[i][ixVeloc] || '').trim() : '';
+    out.push({ tt: tt, nome: porTt[tt].nome, velocidade: velocidade });
   }
   return out;
 }
