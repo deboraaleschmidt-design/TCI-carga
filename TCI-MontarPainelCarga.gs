@@ -267,9 +267,9 @@ function criarAbaHistorico_(ss) {
   let sh = ss.getSheetByName(nome);
   if (!sh) sh = ss.insertSheet(nome);
   if (sh.getLastRow() < 1) {
-    sh.getRange('A1:I1').setValues([[
+    sh.getRange('A1:J1').setValues([[
       'Data snapshot', 'TT', 'Nome técnico', 'Cód. material', 'Material',
-      'Grupo material', 'Agregador', 'Saldo', 'Segmento'
+      'Grupo material', 'Agregador', 'Saldo', 'Segmento', 'Observação'
     ]]).setFontWeight('bold').setBackground('#e8eaf6');
     sh.setFrozenRows(1);
   }
@@ -353,12 +353,12 @@ function registrarSnapshotMisc() {
   removerSnapshotData_(shHist, hoje);
 
   const saida = linhasMisc.map(function (r) {
-    return [hoje, r.tt, r.nome, r.codmaterial, r.material, r.grupo, r.agregador, r.saldo, r.segmento];
+    return [hoje, r.tt, r.nome, r.codmaterial, r.material, r.grupo, r.agregador, r.saldo, r.segmento, r.observacao || ''];
   });
 
   if (saida.length) {
     const start = shHist.getLastRow() + 1;
-    rangeLinhas_(shHist, start, 1, saida.length, 9).setValues(saida);
+    rangeLinhas_(shHist, start, 1, saida.length, 10).setValues(saida);
   }
 
   ss.toast(
@@ -396,7 +396,8 @@ function lerMiscFiltrada_(cfg, porTt) {
     agreg:    indiceColuna_(header, ['agregador']),
     saldo:    indiceColuna_(header, ['saldo']),
     sub:      indiceColuna_(header, ['subsegmento', 'sub grupo agregador']),
-    segmento: indiceColuna_(header, ['segmento'])
+    segmento: indiceColuna_(header, ['segmento']),
+    obs:      indiceColuna_(header, ['observacao', 'observacoes', 'obs'])
   };
 
   const mapa = {};
@@ -428,6 +429,7 @@ function lerMiscFiltrada_(cfg, porTt) {
         grupo:       grupo,
         agregador:   ix.agreg    >= 0 ? String(row[ix.agreg]    || '') : '',
         segmento:    ix.segmento >= 0 ? String(row[ix.segmento] || '') : '',
+        observacao:  ix.obs      >= 0 ? String(row[ix.obs]      || '').trim() : '',
         saldo:       0
       };
     }
@@ -458,9 +460,62 @@ function ehEquipamentoNaoMisc_(grupo, material) {
   return t.indexOf('MODEM') >= 0;
 }
 
-/** Unidade de medida para o painel: DROP em metros, demais em unidades. */
+/** Rolo de 500m (caixa) — medido em metros. Demais drops/cabos contados por unidade (peça). */
+function ehRolo500_(material, agregador) {
+  const t = [material, agregador].join(' ').toUpperCase();
+  return t.indexOf('ROLO') >= 0 && /500/.test(t);
+}
+
+/** Unidade de medida: só rolo 500m em metros; todo o resto (inclusive drop em peças) em unidades. */
 function medidaMaterial_(material, agregador, grupo) {
-  return ehDrop_(material, agregador, grupo) ? 'metros' : 'un';
+  return ehRolo500_(material, agregador) ? 'metros' : 'un';
+}
+
+/**
+ * Categoria-chave do material (por palavra-chave, pois a descrição varia na base).
+ * Retorna null se não for um dos materiais-chave acompanhados.
+ */
+function categoriaChave_(material, agregador) {
+  const t = [material, agregador].join(' ').toUpperCase();
+  if (t.indexOf('CONECTOR') >= 0 && t.indexOf('INTERN') >= 0) return 'CONECTOR INTERNO';
+  if (t.indexOf('CONECTOR') >= 0 && t.indexOf('EXTERN') >= 0) return 'CONECTOR EXTERNO';
+  if (t.indexOf('CONECTOR') >= 0)                              return 'CONECTOR';
+  if (t.indexOf('PLAQUETA') >= 0)                             return 'PLAQUETA';
+  if (t.indexOf('ESTICADOR') >= 0 || t.indexOf('ANEL') >= 0)  return 'ESTICADOR / ANEL';
+  if (t.indexOf('CUNHA') >= 0)                                return 'CUNHA';
+  if (ehRolo500_(material, agregador))                        return 'CABO ROLO 500M';
+  if (t.indexOf('DROP') >= 0 || t.indexOf('CABO') >= 0)       return 'CABO / DROP (peças)';
+  return null;
+}
+
+/** Ordem de exibição da seção materiais-chave. */
+var ORDEM_CHAVE_ = [
+  'CABO / DROP (peças)', 'CABO ROLO 500M', 'CONECTOR INTERNO', 'CONECTOR EXTERNO',
+  'CONECTOR', 'PLAQUETA', 'ESTICADOR / ANEL', 'CUNHA'
+];
+
+/** Medida de cada categoria-chave. */
+function medidaCategoria_(cat) {
+  return cat === 'CABO ROLO 500M' ? 'metros' : 'un';
+}
+
+/**
+ * Dias consecutivos (mais recentes) em que o saldo NÃO baixou para uma chave TT+material.
+ * 0 = baixou no último dia (ou só há 1 snapshot). 4+ = alerta de estoque parado.
+ */
+function diasSemBaixar_(snapshots, chave) {
+  const datas = snapshots.datas;
+  if (datas.length < 2) return 0;
+  let dias = 0;
+  for (let i = datas.length - 1; i >= 1; i--) {
+    const cur  = snapshots.porData[datas[i]]     && snapshots.porData[datas[i]][chave];
+    const prev = snapshots.porData[datas[i - 1]] && snapshots.porData[datas[i - 1]][chave];
+    const sCur  = cur  ? cur.saldo  : 0;
+    const sPrev = prev ? prev.saldo : 0;
+    if (sCur < sPrev) break;   // baixou nesta transição → para de contar
+    dias++;
+  }
+  return dias;
 }
 
 // ─── Forms instalados do dia ─────────────────────────────────────────────────
@@ -551,26 +606,32 @@ function montarPainelMiscelania() {
   if (old) ss.deleteSheet(old);
   const sh = ss.insertSheet(nome, 0);
 
-  titulo_(sh, 'A1:K1', 'PAINEL MISCELANIA TCI — ONTEM × HOJE (por TT)');
+  titulo_(sh, 'A1:L1', 'PAINEL MISCELANIA TCI — ONTEM × HOJE (por TT)');
   const txtComp = dataOntem
     ? ('Comparação: ' + dataOntem + ' → ' + dataHoje)
     : ('1º snapshot: ' + dataHoje + ' — rode amanhã para ver ontem × hoje');
-  sh.getRange('A2:K2').merge()
+  sh.getRange('A2:L2').merge()
     .setValue(txtComp + '  |  Atualizado: ' + Utilities.formatDate(
       new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'
     ))
     .setFontStyle('italic').setHorizontalAlignment('center').setFontSize(10);
 
-  let row = 4;
+  escreverDescricaoRegras_(sh, 'A3:L3',
+    'Alimenta-se de: EQUIPES (online, entradas/saídas dos técnicos) · FORMS de encerradas · MATERIAIS TCI BASE.  ' +
+    'Técnico baixa material aplicando na atividade — queda de saldo = trabalho. Transferências e defeitos devem ' +
+    'ser tratados no dia/armazém para a carga ficar exata.');
+
+  let row = 5;
+  row = escreverMateriaisChave_(sh, row, snapshots, dataOntem, dataHoje, equipe.porTt);
   row = escreverResumoDrop_(sh, row, snapshots, dataOntem, dataHoje, equipe.porTt);
 
   sh.getRange(row, 1).setValue('DETALHE POR TÉCNICO E MATERIAL').setFontWeight('bold').setFontSize(11);
   row++;
   const cab = [
     'TT', 'Técnico', 'Área', 'Segmento', 'Material', 'Grupo', 'Medida',
-    'Saldo ontem', 'Saldo hoje', 'Variação', 'Situação'
+    'Saldo ontem', 'Saldo hoje', 'Variação', 'Situação', 'Dias s/ baixar'
   ];
-  cabecalhoTabela_(sh, 'A' + row + ':K' + row, cab);
+  cabecalhoTabela_(sh, 'A' + row + ':L' + row, cab);
   const linhaCab = row;
   row++;
 
@@ -587,6 +648,7 @@ function montarPainelMiscelania() {
   });
 
   const linhas = [];
+  const notasObs = [];   // {offset, texto} para anotar na célula Material sem poluir
   Object.keys(chaves).sort().forEach(function (chave) {
     const partes = chave.split('\t');
     const tt  = partes[0];
@@ -603,6 +665,10 @@ function montarPainelMiscelania() {
     const ref      = snapHoje || snapOntem;
     const variacao = saldoHoje - saldoOntem;
     const situacao = classificarVariacao_(saldoOntem, saldoHoje);
+    const dias     = diasSemBaixar_(snapshots, chave);
+
+    const obs = (ref.observacao || '').trim();
+    if (obs) notasObs.push({ offset: linhas.length, texto: 'Observação almox: ' + obs });
 
     linhas.push([
       tt,
@@ -615,21 +681,27 @@ function montarPainelMiscelania() {
       dataOntem ? saldoOntem : '',
       saldoHoje,
       dataOntem ? variacao   : '',
-      dataOntem ? situacao   : 'AGUARDANDO 2º DIA'
+      dataOntem ? situacao   : 'AGUARDANDO 2º DIA',
+      dataOntem ? dias       : ''
     ]);
   });
 
   if (linhas.length) {
     const fim = row + linhas.length - 1;
-    rangeLinhas_(sh, row, 1, linhas.length, 11).setValues(linhas);
+    rangeLinhas_(sh, row, 1, linhas.length, 12).setValues(linhas);
     rangeLinhas_(sh, row, 8, linhas.length, 3).setNumberFormat('#,##0');
     colorirSituacao_(sh, row, fim, 11);
-    sh.getRange('A' + linhaCab + ':K' + fim).setBorder(
+    colorirDiasSemBaixar_(sh, row, fim, 12);
+    // Observação da base TCI (col I) entra como NOTA na célula Material — não polui a tabela
+    notasObs.forEach(function (n) {
+      sh.getRange(row + n.offset, 5).setNote(n.texto);
+    });
+    sh.getRange('A' + linhaCab + ':L' + fim).setBorder(
       true, true, true, true, true, true, '#bdbdbd', SpreadsheetApp.BorderStyle.SOLID
     );
   }
 
-  [90, 220, 80, 100, 260, 110, 50, 90, 90, 80, 110].forEach(function (w, i) {
+  [90, 220, 80, 100, 260, 110, 50, 90, 90, 80, 110, 90].forEach(function (w, i) {
     sh.setColumnWidth(i + 1, w);
   });
   sh.setFrozenRows(linhaCab);
@@ -637,41 +709,118 @@ function montarPainelMiscelania() {
   ss.toast('Painel miscelânia atualizado.', 'TCI Carga', 8);
 }
 
-function escreverResumoDrop_(sh, row, snapshots, dataOntem, dataHoje, porTt) {
-  sh.getRange(row, 1).setValue('RESUMO DROP (metros / unidades em estoque)').setFontWeight('bold').setFontSize(11);
+/** Texto de regras/descrição numa faixa mesclada, fonte pequena, sem poluir. */
+function escreverDescricaoRegras_(sh, range, texto) {
+  sh.getRange(range).merge().setValue(texto)
+    .setFontSize(9).setFontColor('#555').setWrap(true)
+    .setHorizontalAlignment('left').setVerticalAlignment('middle')
+    .setBackground('#f5f5f5');
+}
+
+/** SEÇÃO 1 — Materiais-chave: total TCI (ontem × hoje) somando todos os técnicos. */
+function escreverMateriaisChave_(sh, row, snapshots, dataOntem, dataHoje, porTt) {
+  sh.getRange(row, 1).setValue('MATERIAIS-CHAVE — TOTAL TCI (ontem × hoje)').setFontWeight('bold').setFontSize(11);
   row++;
-  cabecalhoTabela_(sh, 'A' + row + ':H' + row, [
-    'TT', 'Técnico', 'DROP ontem', 'DROP hoje', 'Variação', 'Situação', 'Consumiu?', 'Obs'
+  cabecalhoTabela_(sh, 'A' + row + ':G' + row, [
+    'Material-chave', 'Medida', 'Téc. c/ estoque', 'Total ontem', 'Total hoje', 'Variação', 'Consumiu?'
+  ]);
+  const linCab = row;
+  row++;
+
+  const totHoje  = somarPorCategoria_(snapshots, dataHoje, porTt);
+  const totOntem = somarPorCategoria_(snapshots, dataOntem, porTt);
+
+  const linhas = [];
+  ORDEM_CHAVE_.forEach(function (cat) {
+    const h = totHoje[cat]  || { soma: 0, tecs: {} };
+    const o = totOntem[cat] || { soma: 0, tecs: {} };
+    if (h.soma <= 0 && o.soma <= 0) return;
+    const variacao = h.soma - o.soma;
+    const consumiu = dataOntem ? (variacao < 0 ? 'SIM' : 'NÃO') : '';
+    linhas.push([
+      cat, medidaCategoria_(cat), Object.keys(h.tecs).length,
+      dataOntem ? o.soma : '', h.soma,
+      dataOntem ? variacao : '', consumiu
+    ]);
+  });
+
+  if (linhas.length) {
+    const fim = row + linhas.length - 1;
+    rangeLinhas_(sh, row, 1, linhas.length, 7).setValues(linhas);
+    rangeLinhas_(sh, row, 4, linhas.length, 3).setNumberFormat('#,##0');
+    // colore a coluna "Consumiu?" (col G = 7): SIM verde, NÃO amarelo
+    for (let i = 0; i < linhas.length; i++) {
+      const c = String(linhas[i][6] || '').toUpperCase();
+      if (c === 'SIM')      sh.getRange(row + i, 7).setBackground('#e8f5e9');
+      else if (c === 'NÃO') sh.getRange(row + i, 7).setBackground('#fff8e1');
+    }
+    sh.getRange('A' + linCab + ':G' + fim).setBorder(
+      true, true, true, true, true, true, '#9e9e9e', SpreadsheetApp.BorderStyle.SOLID
+    );
+    row = fim + 2;
+  } else {
+    row += 2;
+  }
+  return row;
+}
+
+/** Soma saldo por categoria-chave (todos os TT da equipe) numa data. */
+function somarPorCategoria_(snapshots, data, porTt) {
+  const out = {};
+  if (!data || !snapshots.porData[data]) return out;
+  Object.keys(snapshots.porData[data]).forEach(function (chave) {
+    const tt = chave.split('\t')[0];
+    if (!porTt[tt]) return;
+    const item = snapshots.porData[data][chave];
+    const cat = categoriaChave_(item.material, item.agregador);
+    if (!cat) return;
+    if (!out[cat]) out[cat] = { soma: 0, tecs: {} };
+    out[cat].soma += item.saldo;
+    if (item.saldo > 0) out[cat].tecs[tt] = true;
+  });
+  return out;
+}
+
+function escreverResumoDrop_(sh, row, snapshots, dataOntem, dataHoje, porTt) {
+  sh.getRange(row, 1).setValue('RESUMO DROP — rolo 500m (metros) × peças (unidades)').setFontWeight('bold').setFontSize(11);
+  row++;
+  cabecalhoTabela_(sh, 'A' + row + ':I' + row, [
+    'TT', 'Técnico', 'Rolo 500m ontem (m)', 'Rolo 500m hoje (m)',
+    'Peças drop ontem (un)', 'Peças drop hoje (un)', 'Situação', 'Consumiu?', 'Obs'
   ]);
   const linCab = row;
   row++;
 
   const resumo = [];
   Object.keys(porTt).sort().forEach(function (tt) {
-    const dropOntem = somarDropTecnico_(snapshots, dataOntem, tt);
-    const dropHoje  = somarDropTecnico_(snapshots, dataHoje,  tt);
-    if (dropOntem <= 0 && dropHoje <= 0) return;
+    const o = somarDropTecnico_(snapshots, dataOntem, tt);
+    const h = somarDropTecnico_(snapshots, dataHoje,  tt);
+    if (o.metros <= 0 && o.unidades <= 0 && h.metros <= 0 && h.unidades <= 0) return;
 
-    const variacao = dropHoje - dropOntem;
-    const sit = classificarVariacao_(dropOntem, dropHoje);
+    const totO = o.metros + o.unidades;
+    const totH = h.metros + h.unidades;
+    const variacao = totH - totO;
+    const sit = classificarVariacao_(totO, totH);
+    const obsParts = [];
+    if (h.metros < o.metros)     obsParts.push('rolo -' + (o.metros - h.metros) + 'm');
+    if (h.unidades < o.unidades) obsParts.push('peças -' + (o.unidades - h.unidades) + 'un');
+
     resumo.push([
-      tt,
-      porTt[tt].nome,
-      dataOntem ? dropOntem : '',
-      dropHoje,
-      dataOntem ? variacao : '',
+      tt, porTt[tt].nome,
+      dataOntem ? o.metros : '', h.metros,
+      dataOntem ? o.unidades : '', h.unidades,
       dataOntem ? sit : 'AGUARDANDO 2º DIA',
       dataOntem && variacao < 0 ? 'SIM' : (dataOntem && variacao === 0 ? 'NÃO' : ''),
-      variacao < 0 ? 'Baixou ' + Math.abs(variacao) + ' vs ontem' : ''
+      dataOntem ? obsParts.join(' · ') : ''
     ]);
   });
 
   if (resumo.length) {
     const fim = row + resumo.length - 1;
-    rangeLinhas_(sh, row, 1, resumo.length, 8).setValues(resumo);
-    rangeLinhas_(sh, row, 3, resumo.length, 3).setNumberFormat('#,##0');
-    colorirSituacao_(sh, row, fim, 6);
-    sh.getRange('A' + linCab + ':H' + fim).setBorder(
+    rangeLinhas_(sh, row, 1, resumo.length, 9).setValues(resumo);
+    rangeLinhas_(sh, row, 3, resumo.length, 4).setNumberFormat('#,##0');
+    colorirSituacao_(sh, row, fim, 7);
+    sh.getRange('A' + linCab + ':I' + fim).setBorder(
       true, true, true, true, true, true, '#9e9e9e', SpreadsheetApp.BorderStyle.SOLID
     );
     row = fim + 3;
@@ -681,15 +830,34 @@ function escreverResumoDrop_(sh, row, snapshots, dataOntem, dataHoje, porTt) {
   return row;
 }
 
+/** Soma drop por técnico, separando rolo 500m (metros) de peças (unidades). */
 function somarDropTecnico_(snapshots, data, tt) {
-  if (!data || !snapshots.porData[data]) return 0;
-  let total = 0;
+  const out = { metros: 0, unidades: 0 };
+  if (!data || !snapshots.porData[data]) return out;
   Object.keys(snapshots.porData[data]).forEach(function (chave) {
     if (chave.indexOf(tt + '\t') !== 0) return;
     const item = snapshots.porData[data][chave];
-    if (ehDrop_(item.material, item.agregador, item.grupo)) total += item.saldo;
+    if (!ehDrop_(item.material, item.agregador, item.grupo)) return;
+    if (ehRolo500_(item.material, item.agregador)) out.metros   += item.saldo;
+    else                                           out.unidades += item.saldo;
   });
-  return total;
+  return out;
+}
+
+/** Colore coluna "Dias s/ baixar": 4+ vermelho forte, 2-3 amarelo, 0-1 verde. */
+function colorirDiasSemBaixar_(sh, rowIni, rowFim, col) {
+  const range = sh.getRange(rowIni, col, rowFim - rowIni + 1, 1);
+  const vals  = range.getValues();
+  for (let i = 0; i < vals.length; i++) {
+    const v = vals[i][0];
+    if (v === '' || v === null) continue;
+    const n = Number(v);
+    let c = null;
+    if (n >= 4)      c = '#ef9a9a';   // vermelho forte — estoque parado (alerta)
+    else if (n >= 2) c = '#fff8e1';   // amarelo
+    else             c = '#e8f5e9';   // verde — está girando
+    if (c) sh.getRange(rowIni + i, col).setBackground(c);
+  }
 }
 
 function classificarVariacao_(ontem, hoje) {
@@ -702,7 +870,7 @@ function classificarVariacao_(ontem, hoje) {
 
 function lerSnapshots_(shHist) {
   const last = shHist.getLastRow();
-  const numCols = Math.min(shHist.getLastColumn(), 9);
+  const numCols = Math.min(shHist.getLastColumn(), 10);
   const dados = rangeLinhas_(shHist, 2, 1, last - 1, numCols).getValues();
   const porData = {};
   const setDatas = {};
@@ -723,7 +891,8 @@ function lerSnapshots_(shHist) {
       grupo:       String(row[5] || ''),
       agregador:   String(row[6] || ''),
       saldo:       parseNumero_(row[7]),
-      segmento:    String(row[8] || '')
+      segmento:    String(row[8] || ''),
+      observacao:  String(row[9] || '')
     };
   });
 
@@ -772,6 +941,12 @@ function montarPainelModems() {
       Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm'))
     .setFontStyle('italic').setHorizontalAlignment('center').setFontSize(10);
 
+  escreverDescricaoRegras_(sh, 'A3:J3',
+    'Técnico preenche o Forms DIARIAMENTE e baixa o serial (preencher hoje = verde; só ontem ou nada = vermelho). ' +
+    'Transferências devem ser realizadas no dia para atualização exata. ' +
+    'Defeitos devem ser encaminhados ao armazém para sair da carga. ' +
+    'Fontes: EQUIPES (online) · FORMS de encerradas · MATERIAIS TCI BASE.');
+
   cabecalhoTabela_(sh, 'A4:J4', [
     'TT', 'Técnico', 'Área', 'Velocidade / Descrição', 'Qtd em carga (líquida)',
     'Total em carga', 'Baixados hoje', 'Total Forms (histórico)', 'Preencheu hoje/ontem?', 'Status'
@@ -808,8 +983,8 @@ function montarPainelModems() {
       const preencheuHoje  = form.instalacoes.some(function (ins) { return ins.data === hoje; });
       const preencheuOntem = form.instalacoes.some(function (ins) { return ins.data === ontem; });
       if (preencheuHoje)       preencheuStatus = 'SIM — hoje';
-      else if (preencheuOntem) preencheuStatus = 'SIM — ontem';
-      else                     preencheuStatus = 'NÃO (últimos 2 dias)';
+      else if (preencheuOntem) preencheuStatus = 'SIM — ontem (não hoje)';
+      else                     preencheuStatus = 'NÃO (2 dias)';
     }
 
     return [
@@ -877,9 +1052,10 @@ function colorirPreenchimento_(sh, rowIni, rowFim, col) {
   for (let i = 0; i < vals.length; i++) {
     const s = String(vals[i][0] || '').toUpperCase();
     let bg = null;
-    if (s.indexOf('SIM — HOJE') >= 0)   bg = '#e8f5e9';  // verde
-    else if (s.indexOf('SIM — ONTEM') >= 0) bg = '#fff8e1'; // amarelo
-    else if (s.indexOf('NÃO') >= 0)     bg = '#ffebee';  // vermelho
+    // Só "SIM — hoje" é verde. Preencheu só ontem (não hoje) = vermelho. Nada = vermelho forte.
+    if (s.indexOf('SIM — HOJE') >= 0)       bg = '#e8f5e9';  // verde — em dia
+    else if (s.indexOf('SIM — ONTEM') >= 0) bg = '#ffcdd2';  // vermelho — não preencheu hoje
+    else if (s.indexOf('NÃO') >= 0)         bg = '#ef9a9a';  // vermelho forte — sem atualizar
     if (bg) sh.getRange(rowIni + i, col).setBackground(bg);
   }
 }
