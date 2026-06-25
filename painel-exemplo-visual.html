@@ -5,299 +5,196 @@
 <style>
   body { font-family: Arial, Helvetica, sans-serif; background:#f1f3f4; margin:0; padding:24px; }
   h2 { font-size:13px; color:#555; margin:32px 0 6px; font-weight:normal; letter-spacing:.5px; text-transform:uppercase; }
-
   .planilha { background:#fff; border:1px solid #c0c0c0; box-shadow:0 2px 8px rgba(0,0,0,.15); margin-bottom:36px; display:inline-block; }
   table { border-collapse:collapse; font-size:12px; }
   td, th { border:1px solid #d4d4d4; padding:5px 8px; white-space:nowrap; }
-
   .titulo { background:#1565c0; color:#fff; font-weight:bold; font-size:14px; text-align:center; padding:10px; }
   .subtitulo { font-style:italic; text-align:center; color:#555; font-size:10px; padding:5px; background:#fafafa; }
-  .regras { font-size:10px; color:#555; background:#f5f5f5; padding:6px 10px; max-width:900px; white-space:normal; line-height:1.5; }
+  .regras { font-size:10px; color:#555; background:#f5f5f5; padding:6px 10px; white-space:normal; line-height:1.5; }
   .secao { font-weight:bold; font-size:11px; padding:7px 8px; background:#fff; color:#1565c0; border-bottom:2px solid #1565c0; }
-
-  /* cabeçalho de colunas — linha normal, fica logo acima dos dados */
   tr.cab th { background:#e3f2fd; font-weight:bold; text-align:center; font-size:11px; }
-  tr.cab th.sub { background:#bbdefb; }
-
-  .tt   { color:#1565c0; font-weight:bold; }
-  .num  { text-align:right; }
-  .ctr  { text-align:center; }
-
-  .verde    { background:#e8f5e9; }
-  .amarelo  { background:#fff8e1; }
-  .vermforte{ background:#ef9a9a; font-weight:bold; }
-
-  .baixou { background:#ffebee; }
-  .manteve{ background:#fff8e1; }
-  .subiu  { background:#e8f5e9; }
-
+  .tt { color:#1565c0; font-weight:bold; }
+  .num { text-align:right; }
+  .ctr { text-align:center; }
+  .verde { background:#e8f5e9; }
+  .amarelo { background:#fff8e1; }
+  .laranja { background:#ffe0b2; }
+  .verm { background:#ffcdd2; }
+  .vermforte { background:#ef9a9a; font-weight:bold; }
   .total-row { background:#e3f2fd; font-weight:bold; }
-
   .vazio { height:12px; background:#f1f3f4; border:none; }
-
-  .tag { display:inline-block; background:#ff7043; color:#fff; font-size:9px; font-weight:bold;
-         border-radius:3px; padding:1px 5px; margin-left:6px; vertical-align:middle; letter-spacing:.5px; }
-  .tag-fix { background:#43a047; }
+  .tag { display:inline-block; background:#43a047; color:#fff; font-size:9px; font-weight:bold; border-radius:3px; padding:1px 5px; margin-left:6px; vertical-align:middle; }
+  .calc { font-size:10px; color:#888; }
 </style>
 </head>
 <body>
 
 <!-- ═══════════════ PAINEL MODEMS ═══════════════ -->
-<h2>PAINEL MODEMS <span class="tag tag-fix">✓ Cabeçalho acima dos dados</span> <span class="tag tag-fix">✓ CABO/DROP removido</span> <span class="tag tag-fix">✓ "ontem" = amarelo</span></h2>
+<h2>PAINEL MODEMS <span class="tag">✓ carga líquida = ALMOX − encerrados Forms</span> <span class="tag">✓ farol por último encerramento</span></h2>
 <div class="planilha">
 <table>
-  <tr><td colspan="10" class="titulo">PAINEL MODEMS TCI — CARGA POR TT · controle de preenchimento Forms</td></tr>
-  <tr><td colspan="10" class="subtitulo">Carga líquida = ALMOX menos seriais já baixados no Forms hoje · Somente TT da EQUIPES · Atualizado: 25/06/2026 11:45</td></tr>
-  <tr><td colspan="10" class="regras">
-    Técnico preenche o Forms DIARIAMENTE e baixa o serial (preencher hoje = verde; preencheu ontem = normal/amarelo; 2+ dias sem preencher = vermelho).
-    Transferências devem ser realizadas no dia para atualização exata.
-    Defeitos devem ser encaminhados ao armazém para sair da carga.
-    Fontes: EQUIPES (online) · FORMS de encerradas · MATERIAIS TCI BASE.
+  <tr><td colspan="9" class="titulo">PAINEL MODEMS TCI — CARGA LÍQUIDA POR TT (só ONT · MESH · MODEM)</td></tr>
+  <tr><td colspan="9" class="subtitulo">Carga = ALMOX SERIALIZADA − TODOS os seriais já encerrados no FORMS · Atualizado 25/06/2026 11:00</td></tr>
+  <tr><td colspan="9" class="regras">
+    Quando o serial é encerrado no Forms, o equipamento já foi instalado no cliente → <b>sai da carga na hora</b> (não importa a observação BASE/TÉCNICO/PENDENTE da col I).
+    Farol (col Status) = tempo desde o último encerramento: 🟢 hoje · 🟡 1 dia · 🟠 2 dias · 🔴 3+ dias sem encerrar.
   </td></tr>
-
-  <!-- CABEÇALHO DE COLUNAS — logo acima dos dados -->
   <tr class="cab">
     <th>TT</th><th>Técnico</th><th>Área</th>
-    <th>Velocidade / Descrição<br><small style="font-weight:normal;color:#888">(só ONT · MESH · MODEM)</small></th>
+    <th>Velocidade / Descrição</th>
     <th>Qtd em carga<br>(líquida)</th>
-    <th>Total<br>em carga</th>
-    <th>Baixados<br>hoje</th>
-    <th>Total Forms<br>(histórico)</th>
-    <th>Preencheu<br>hoje/ontem?</th>
+    <th>Encerrados<br>hoje</th>
+    <th>Total encerrados<br>(histórico Forms)</th>
+    <th>Último<br>encerramento</th>
     <th>Status</th>
   </tr>
 
-  <!-- TT685526 — 2+ dias sem preencher → VERMELHO FORTE -->
+  <!-- EDISON — exemplo da correção: 51 ALMOX − 25 encerrados = 26 -->
   <tr>
-    <td class="tt" rowspan="7">TT685526</td>
-    <td rowspan="7">VANIO DE OLIVEIRA GONÇALVES</td>
-    <td rowspan="7">AVA</td>
-    <td>MESH VTAL EASYMESH ZTE E2320 WIFI6</td>
-    <td class="num">9</td>
-    <td class="num" rowspan="7">47</td>
-    <td class="num" rowspan="7">0</td>
-    <td class="num" rowspan="7">11</td>
-    <td class="ctr vermforte" rowspan="7">NÃO (2+ dias) 🔴</td>
-    <td class="ctr vermforte" rowspan="7">🔴 Sem atualizar</td>
+    <td class="tt" rowspan="3">TT012821</td>
+    <td rowspan="3">EDISON FUMAGALLI</td>
+    <td rowspan="3">CENTRO</td>
+    <td>ONT G-1425-GA NOKIA 2GHZ/5GHZ <span class="calc">(18 ALMOX − 8 enc.)</span></td>
+    <td class="num">10</td>
+    <td class="num" rowspan="3">3</td>
+    <td class="num" rowspan="3">25</td>
+    <td class="ctr verde" rowspan="3">hoje</td>
+    <td class="ctr verde" rowspan="3">🟢 OK</td>
   </tr>
-  <tr><td>ONT CLIENTCO NOKIA G-1426G-D WIFI6</td><td class="num">2</td></tr>
-  <tr><td>ONT CLIENTCO ZTE F6201B WIFI6</td><td class="num">1</td></tr>
-  <tr><td>ONT F670L ZTE 2GHZ/5GHZ</td><td class="num">15</td></tr>
-  <tr><td>ONT G-1425-GA NOKIA 2GHZ/5GHZ</td><td class="num">14</td></tr>
-  <tr><td>ONT TIM HUAWEI HG8145X6-10 V2 WIFI6</td><td class="num">5</td></tr>
-  <tr><td>ONT TIM ZTE F6600P-WL WIFI6</td><td class="num">1</td></tr>
-
-  <!-- TT658097 — preencheu hoje → VERDE -->
+  <tr><td>ONT F670L ZTE 2GHZ/5GHZ <span class="calc">(20 ALMOX − 11 enc.)</span></td><td class="num">9</td></tr>
+  <tr><td>MESH VTAL EASYMESH ZTE E2320 <span class="calc">(13 ALMOX − 6 enc.)</span></td><td class="num">7</td></tr>
   <tr>
-    <td class="tt" rowspan="4">TT658097</td>
-    <td rowspan="4">TIAGO DE MORAES</td>
-    <td rowspan="4">ALP</td>
-    <td>MESH VTAL EASYMESH ZTE E2320 WIFI6</td>
-    <td class="num">5</td>
-    <td class="num" rowspan="4">46</td>
-    <td class="num" rowspan="4">2</td>
-    <td class="num" rowspan="4">8</td>
-    <td class="ctr verde" rowspan="4">SIM — hoje ✔</td>
-    <td class="ctr verde" rowspan="4">✔ OK</td>
+    <td colspan="3" class="amarelo" style="text-align:right"><b>Total EDISON na carga (líquida):</b></td>
+    <td class="num amarelo"><b>26</b></td>
+    <td colspan="5" class="amarelo calc">era 51 bruto na ALMOX — 25 já encerrados saíram</td>
   </tr>
-  <tr><td>ONT CLIENTCO NOKIA G-1426G-D WIFI6</td><td class="num">24</td></tr>
-  <tr><td>ONT CLIENTCO ZTE F6201B WIFI6</td><td class="num">1</td></tr>
-  <tr><td>ONT F670L ZTE 2GHZ/5GHZ</td><td class="num">16</td></tr>
 
-  <!-- TT010269 — preencheu ontem → AMARELO -->
+  <!-- TIAGO — total histórico agora correto (antes vinha zerado) -->
   <tr>
-    <td class="tt" rowspan="2">TT010269</td>
-    <td rowspan="2">MAICON DIONATHA DE OLIVEIRA</td>
-    <td rowspan="2">NORTE</td>
+    <td class="tt" rowspan="2">TT658097</td>
+    <td rowspan="2">TIAGO DE MORAES</td>
+    <td rowspan="2">ALP</td>
+    <td>ONT CLIENTCO NOKIA G-1426G-D WIFI6</td>
+    <td class="num">12</td>
+    <td class="num" rowspan="2">2</td>
+    <td class="num" rowspan="2">47</td>
+    <td class="ctr verde" rowspan="2">hoje</td>
+    <td class="ctr verde" rowspan="2">🟢 OK</td>
+  </tr>
+  <tr><td>ONT F670L ZTE 2GHZ/5GHZ</td><td class="num">8</td></tr>
+
+  <!-- MAICON — encerrou ontem → amarelo -->
+  <tr>
+    <td class="tt">TT010269</td><td>MAICON DIONATHA</td><td>NORTE</td>
     <td>ONT G-1425-GA NOKIA 2GHZ/5GHZ</td>
-    <td class="num">3</td>
-    <td class="num" rowspan="2">5</td>
-    <td class="num" rowspan="2">0</td>
-    <td class="num" rowspan="2">12</td>
-    <td class="ctr amarelo" rowspan="2">SIM — ontem ⚠</td>
-    <td class="ctr amarelo" rowspan="2">⚠ Aguardando hoje</td>
+    <td class="num">5</td><td class="num">0</td><td class="num">31</td>
+    <td class="ctr amarelo">há 1 dia</td><td class="ctr amarelo">🟡 1 dia</td>
   </tr>
-  <tr><td>ONT F670L ZTE 2GHZ/5GHZ</td><td class="num">2</td></tr>
 
+  <!-- VANIO — 2 dias → laranja -->
   <tr>
-    <td colspan="4" class="total-row" style="text-align:right">TOTAL TCI</td>
-    <td class="total-row num">—</td>
-    <td class="total-row num">98</td>
-    <td class="total-row num">2</td>
-    <td class="total-row num">31</td>
-    <td colspan="2" class="total-row"></td>
+    <td class="tt">TT685526</td><td>VANIO DE OLIVEIRA GONÇALVES</td><td>AVA</td>
+    <td>ONT F670L ZTE 2GHZ/5GHZ</td>
+    <td class="num">15</td><td class="num">0</td><td class="num">11</td>
+    <td class="ctr laranja">há 2 dias</td><td class="ctr laranja">🟠 2 dias</td>
   </tr>
 
-  <tr><td colspan="10" class="vazio"></td></tr>
-
-  <tr><td colspan="10" class="secao">📊 TOTAL TCI EM CARGA — POR EQUIPAMENTO / ONT (toda a equipe)</td></tr>
-  <tr class="cab">
-    <th colspan="6">Equipamento / Velocidade</th>
-    <th colspan="4">Total TCI em carga</th>
-  </tr>
-  <tr><td colspan="6">MESH VTAL EASYMESH ZTE E2320 WIFI6</td><td colspan="4" class="ctr">14</td></tr>
-  <tr><td colspan="6">ONT CLIENTCO NOKIA G-1426G-D WIFI6</td><td colspan="4" class="ctr">26</td></tr>
-  <tr><td colspan="6">ONT CLIENTCO ZTE F6201B WIFI6</td><td colspan="4" class="ctr">2</td></tr>
-  <tr><td colspan="6">ONT F670L ZTE 2GHZ/5GHZ</td><td colspan="4" class="ctr">31</td></tr>
-  <tr><td colspan="6">ONT G-1425-GA NOKIA 2GHZ/5GHZ</td><td colspan="4" class="ctr">17</td></tr>
-  <tr><td colspan="6">ONT TIM HUAWEI HG8145X6-10 V2 WIFI6</td><td colspan="4" class="ctr">5</td></tr>
-  <tr><td colspan="6">ONT TIM ZTE F6600P-WL WIFI6</td><td colspan="4" class="ctr">1</td></tr>
-  <tr style="background:#ce93d8;font-weight:bold;">
-    <td colspan="6">TOTAL GERAL</td>
-    <td colspan="4" class="ctr">96</td>
+  <!-- JULIANO — 3+ dias → vermelho forte -->
+  <tr>
+    <td class="tt">TT644156</td><td>JULIANO BARCELLOS</td><td>SUL</td>
+    <td>ONT G-1425-GA NOKIA 2GHZ/5GHZ</td>
+    <td class="num">7</td><td class="num">0</td><td class="num">5</td>
+    <td class="ctr vermforte">há 4 dias</td><td class="ctr vermforte">🔴 3+ dias</td>
   </tr>
 </table>
 </div>
 
-<p style="font-size:11px;color:#555;max-width:900px;">
-  🟢 <b>SIM — hoje</b> = preencheu Forms hoje (em dia) &nbsp;·&nbsp;
-  🟡 <b>SIM — ontem</b> = preencheu ontem, aguardando o de hoje (normal até fim do dia) &nbsp;·&nbsp;
-  🔴 <b>NÃO (2+ dias)</b> = sem preencher há 2 ou mais dias (crítico)<br>
-  <b>Nota:</b> CABO/DROP têm serial na ALMOX mas <u>não aparecem aqui</u> — pertencem ao PAINEL MISCELÂNIA.
+<p style="font-size:11px;color:#555;max-width:980px;">
+  <b>Correção principal:</b> a carga agora desconta <u>todos</u> os seriais já encerrados no Forms (histórico inteiro), não só os de hoje — por isso o Edison passa de 51 para 26.<br>
+  <b>Status (col J):</b> não mostra mais o "status atual" do técnico — mostra o farol pelo último encerramento no Forms.
 </p>
 
 
 <!-- ═══════════════ PAINEL MISCELANIA ═══════════════ -->
-<h2>PAINEL MISCELÂNIA <span class="tag tag-fix">✓ Cabeçalho acima dos dados</span> <span class="tag tag-fix">✓ Todas as categorias por técnico</span></h2>
+<h2>PAINEL MISCELÂNIA <span class="tag">✓ simplificado</span> <span class="tag">✓ farol de movimentação</span> <span class="tag">✓ não congelado</span></h2>
 <div class="planilha">
 <table>
-  <tr><td colspan="15" class="titulo">PAINEL MISCELÂNIA TCI — ONTEM × HOJE (por TT)</td></tr>
-  <tr><td colspan="15" class="subtitulo">Comparação: 2026-06-24 → 2026-06-25 · Atualizado: 25/06/2026 11:45</td></tr>
-  <tr><td colspan="15" class="regras">
-    Alimenta-se de: EQUIPES (online) · FORMS de encerradas · MATERIAIS TCI BASE.
-    Técnico baixa material aplicando na atividade — queda de saldo = trabalho.
-    Transferências e defeitos devem ser tratados no dia/armazém para a carga ficar exata.
+  <tr><td colspan="9" class="titulo">PAINEL MISCELÂNIA TCI — CARGA ATUAL POR TÉCNICO (saldo col Y)</td></tr>
+  <tr><td colspan="9" class="subtitulo">Comparação com o histórico de ontem · base substituída diariamente até 11h · Atualizado 25/06/2026 11:00</td></tr>
+  <tr><td colspan="9" class="regras">
+    Saldo atual = coluna Y da BASE MICELANEAS. Todo dia a base é apagada e colada nova; o sistema guarda o HISTÓRICO do dia anterior para comparar.
+    <b>Farol:</b> 🟢 teve movimentação (baixou de ontem→hoje) · 🔴 sem movimentação (saldo igual ao de ontem = não aplicou).
   </td></tr>
 
-  <!-- SEÇÃO 1 -->
-  <tr><td colspan="15" class="secao">📋 MATERIAIS-CHAVE — TOTAL TCI (ontem × hoje)</td></tr>
+  <!-- RESUMO POR TÉCNICO -->
+  <tr><td colspan="9" class="secao">👤 RESUMO POR TÉCNICO — quantidade em carga por categoria</td></tr>
   <tr class="cab">
-    <th colspan="3">Material-chave</th>
-    <th>Medida</th>
-    <th>Téc. c/ estoque</th>
-    <th colspan="2">Total ontem</th>
-    <th colspan="2">Total hoje</th>
-    <th colspan="2">Variação</th>
-    <th colspan="4">Consumiu?</th>
+    <th>TT</th><th>Técnico</th><th>Área</th>
+    <th>DROP (un)</th><th>CONECTOR (un)</th><th>PLAQUETA (un)</th><th>CUNHA (un)</th><th>ROLO 500m (m)</th>
+    <th>Movimentação?</th>
   </tr>
-  <tr><td colspan="3">CABO / DROP (peças)</td><td class="ctr">un</td><td class="ctr">3</td><td colspan="2" class="num">128</td><td colspan="2" class="num baixou">113</td><td colspan="2" class="num baixou">-15</td><td colspan="4" class="ctr baixou">SIM</td></tr>
-  <tr><td colspan="3">CABO ROLO 500M</td><td class="ctr">metros</td><td class="ctr">2</td><td colspan="2" class="num">1.000</td><td colspan="2" class="num subiu">1.500</td><td colspan="2" class="num subiu">+500</td><td colspan="4" class="ctr subiu">NÃO (entrou rolo)</td></tr>
-  <tr><td colspan="3">CONECTOR</td><td class="ctr">un</td><td class="ctr">3</td><td colspan="2" class="num">430</td><td colspan="2" class="num baixou">400</td><td colspan="2" class="num baixou">-30</td><td colspan="4" class="ctr baixou">SIM</td></tr>
-  <tr><td colspan="3">PLAQUETA</td><td class="ctr">un</td><td class="ctr">3</td><td colspan="2" class="num">105</td><td colspan="2" class="num baixou">95</td><td colspan="2" class="num baixou">-10</td><td colspan="4" class="ctr baixou">SIM</td></tr>
-  <tr><td colspan="3">ESTICADOR / ANEL</td><td class="ctr">un</td><td class="ctr">2</td><td colspan="2" class="num">45</td><td colspan="2" class="num baixou">40</td><td colspan="2" class="num baixou">-5</td><td colspan="4" class="ctr baixou">SIM</td></tr>
-
-  <tr><td colspan="15" class="vazio"></td></tr>
-
-  <!-- SEÇÃO 2 -->
-  <tr><td colspan="15" class="secao">👤 RESUMO MISCELÂNIA POR TÉCNICO — todas as categorias (ontem × hoje)</td></tr>
-  <tr class="cab">
-    <th rowspan="2">TT</th>
-    <th rowspan="2">Técnico</th>
-    <th rowspan="2">Área</th>
-    <th colspan="2">CABO/DROP (un)</th>
-    <th colspan="2">Rolo 500m (m)</th>
-    <th colspan="2">CONECTOR (un)</th>
-    <th colspan="2">PLAQUETA (un)</th>
-    <th colspan="2">ESTICADOR/ANEL (un)</th>
-    <th rowspan="2">Consumiu<br>hoje?</th>
-  </tr>
-  <tr class="cab">
-    <th class="sub">ontem</th><th class="sub">hoje</th>
-    <th class="sub">ontem</th><th class="sub">hoje</th>
-    <th class="sub">ontem</th><th class="sub">hoje</th>
-    <th class="sub">ontem</th><th class="sub">hoje</th>
-    <th class="sub">ontem</th><th class="sub">hoje</th>
-  </tr>
-
   <tr>
     <td class="tt">TT010269</td><td>MAICON DIONATHA</td><td>NORTE</td>
-    <td class="num baixou">40</td><td class="num baixou">35</td>
-    <td class="num manteve">500</td><td class="num manteve">500</td>
-    <td class="num baixou">120</td><td class="num baixou">110</td>
-    <td class="num manteve">30</td><td class="num manteve">30</td>
-    <td class="num baixou">15</td><td class="num baixou">12</td>
-    <td class="ctr baixou">SIM</td>
+    <td class="num verde">35</td><td class="num verde">110</td><td class="num verm">30</td><td class="num verde">12</td><td class="num verm">500</td>
+    <td class="ctr verde">🟢 SIM</td>
   </tr>
   <tr>
     <td class="tt">TT623199</td><td>CLEITON OLIVEIRA</td><td>SUL</td>
-    <td class="num manteve">28</td><td class="num manteve">28</td>
-    <td class="num subiu">0</td><td class="num subiu">500</td>
-    <td class="num manteve">90</td><td class="num manteve">90</td>
-    <td class="num baixou">30</td><td class="num baixou">25</td>
-    <td class="num manteve">10</td><td class="num manteve">10</td>
-    <td class="ctr baixou">SIM</td>
+    <td class="num verm">28</td><td class="num verm">90</td><td class="num verde">25</td><td class="num verm">10</td><td class="num verde">500</td>
+    <td class="ctr verde">🟢 SIM</td>
   </tr>
   <tr>
-    <td class="tt">TT685526</td><td>VANIO OLIVEIRA</td><td>AVA</td>
-    <td class="num baixou">60</td><td class="num baixou">50</td>
-    <td class="num manteve">1.000</td><td class="num manteve">1.000</td>
-    <td class="num baixou">200</td><td class="num baixou">180</td>
-    <td class="num baixou">45</td><td class="num baixou">40</td>
-    <td class="num baixou">20</td><td class="num baixou">16</td>
-    <td class="ctr baixou">SIM</td>
+    <td class="tt">TT685526</td><td>VANIO DE OLIVEIRA</td><td>AVA</td>
+    <td class="num verm">60</td><td class="num verm">200</td><td class="num verm">45</td><td class="num verm">20</td><td class="num verm">1.000</td>
+    <td class="ctr vermforte">🔴 NÃO (parado)</td>
   </tr>
 
-  <tr><td colspan="15" class="vazio"></td></tr>
+  <tr><td colspan="9" class="vazio"></td></tr>
 
-  <!-- SEÇÃO 3 -->
-  <tr><td colspan="15" class="secao">🔍 DETALHE POR TÉCNICO E MATERIAL (observação da base entra como nota na célula)</td></tr>
+  <!-- DETALHE -->
+  <tr><td colspan="9" class="secao">🔍 DETALHE POR TÉCNICO E MATERIAL — farol de movimentação (sem coluna ontem/hoje)</td></tr>
   <tr class="cab">
-    <th>TT</th><th>Técnico</th><th>Área</th><th>Segmento</th>
-    <th colspan="3">Material</th>
-    <th>Grupo</th><th>Medida</th>
-    <th>Saldo ontem</th><th>Saldo hoje</th>
-    <th>Variação</th><th>Situação</th><th>Dias s/ baixar</th>
+    <th>TT</th><th>Técnico</th><th>Categoria</th>
+    <th colspan="2">Material (descrição da base)</th>
+    <th>Medida</th><th>Saldo atual (Y)</th><th>Status</th><th>Observação</th>
   </tr>
   <tr>
-    <td class="tt">TT010269</td><td>MAICON</td><td>NORTE</td><td>SERGIO H.</td>
-    <td colspan="3">CABO OPTIC DP G657 1F CO UNIV 300M 📝</td>
-    <td>CABO/DROP</td><td class="ctr">un</td>
-    <td class="num">40</td><td class="num">35</td>
-    <td class="num baixou">-5</td><td class="baixou">BAIXOU</td>
-    <td class="ctr verde">0</td>
+    <td class="tt">TT010269</td><td>MAICON</td><td>DROP</td>
+    <td colspan="2">CABO OPTIC DP G657 1F CO UNIV 300M</td>
+    <td class="ctr">un</td><td class="num">35</td>
+    <td class="ctr verde">🟢 baixou</td><td></td>
   </tr>
   <tr>
-    <td class="tt">TT010269</td><td>MAICON</td><td>NORTE</td><td>SERGIO H.</td>
-    <td colspan="3">CONECTOR OPTICO INTERNO SC/APC</td>
-    <td>CONECTOR</td><td class="ctr">un</td>
-    <td class="num">120</td><td class="num">110</td>
-    <td class="num baixou">-10</td><td class="baixou">BAIXOU</td>
-    <td class="ctr verde">0</td>
+    <td class="tt">TT010269</td><td>MAICON</td><td>CONECTOR</td>
+    <td colspan="2">CONECTOR OPTICO INTERNO SC/APC</td>
+    <td class="ctr">un</td><td class="num">110</td>
+    <td class="ctr verde">🟢 baixou</td><td></td>
   </tr>
   <tr>
-    <td class="tt">TT010269</td><td>MAICON</td><td>NORTE</td><td>SERGIO H.</td>
-    <td colspan="3">PLAQUETA REDE CABO OPTICO ADVERTENCIA</td>
-    <td>PLAQUETA</td><td class="ctr">un</td>
-    <td class="num">30</td><td class="num">30</td>
-    <td class="num manteve">0</td><td class="manteve">MANTEVE</td>
-    <td class="ctr amarelo">2</td>
+    <td class="tt">TT010269</td><td>MAICON</td><td>PLAQUETA</td>
+    <td colspan="2">PLAQUETA REDE CABO OPTICO ADVERTENCIA</td>
+    <td class="ctr">un</td><td class="num">30</td>
+    <td class="ctr verm">🔴 parado</td><td class="verm">sem movimentação</td>
   </tr>
   <tr>
-    <td class="tt">TT623199</td><td>CLEITON</td><td>SUL</td><td>SERGIO H.</td>
-    <td colspan="3">CABO TEL OPT CFOA-SM-AS-120-S-36 (ROLO 500M)</td>
-    <td>CABO/DROP</td><td class="ctr">metros</td>
-    <td class="num">0</td><td class="num">500</td>
-    <td class="num subiu">+500</td><td class="subiu">ENTROU</td>
-    <td class="ctr verde">0</td>
+    <td class="tt">TT685526</td><td>VANIO</td><td>DROP</td>
+    <td colspan="2">CABO DROP FIG8 1FO 200M</td>
+    <td class="ctr">un</td><td class="num">60</td>
+    <td class="ctr verm">🔴 parado</td><td class="verm">sem movimentação</td>
   </tr>
   <tr>
-    <td class="tt">TT685526</td><td>VANIO</td><td>AVA</td><td>SERGIO H.</td>
-    <td colspan="3">ANEL DISTRIBUICAO P/ ESTICADOR DE FIO FE 📝</td>
-    <td>ESTICADOR/ANEL</td><td class="ctr">un</td>
-    <td class="num">20</td><td class="num">16</td>
-    <td class="num baixou">-4</td><td class="baixou">BAIXOU</td>
-    <td class="ctr verde">0</td>
+    <td class="tt">TT685526</td><td>VANIO</td><td>CUNHA</td>
+    <td colspan="2">CUNHA DE ANCORAGEM DROP</td>
+    <td class="ctr">un</td><td class="num">20</td>
+    <td class="ctr verm">🔴 parado</td><td class="verm">sem movimentação</td>
   </tr>
 </table>
 </div>
 
-<p style="font-size:11px;color:#555;max-width:1100px;line-height:1.7;">
-  🟢 <b>BAIXOU</b> = consumiu material (trabalhou) &nbsp;·&nbsp;
-  🟡 <b>MANTEVE</b> = sem consumo &nbsp;·&nbsp;
-  🔵 <b>ENTROU</b> = recebeu material &nbsp;·&nbsp;
-  📝 = célula com nota de observação (ex.: "base" = item no almox aguardando transferência)<br>
-  <b>Dias s/ baixar:</b> 0–1 = 🟢 ok · 2–3 = 🟡 atenção · 4+ = 🔴 estoque parado<br>
-  <b>Identificação sempre pela TT</b> — nome divergente na base não atrapalha (nome exibido vem da EQUIPES).
+<p style="font-size:11px;color:#555;max-width:980px;line-height:1.7;">
+  🟢 <b>baixou</b> = saldo caiu de ontem→hoje (aplicou material) &nbsp;·&nbsp;
+  🔴 <b>parado</b> = saldo igual ao de ontem (não houve movimentação)<br>
+  Categorias do resumo: <b>DROP</b> (cabo só descrição DROP) · CONECTOR · PLAQUETA · <b>CUNHA</b> · ROLO 500m.
 </p>
 
 </body>
