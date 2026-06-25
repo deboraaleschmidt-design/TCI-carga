@@ -202,7 +202,7 @@ function construirHtmlGerencial_() {
     'h1{font-size:18px;color:#333;}' +
     '</style></head><body>' +
     '<h1>📊 Painel Carga TCI <small style="font-weight:normal;color:#888;font-size:12px;">— atualizado ' + esc_(agora) + '</small></h1>' +
-    '<div class="card"><div class="titulo">PAINEL MODEMS TCI — CARGA LÍQUIDA POR TT (ONT · MESH · MODEM)</div>' +
+    '<div class="card"><div class="titulo">PAINEL MODEMS TCI — CARGA LÍQUIDA POR TT</div>' +
     '<div class="sub">Carga = ALMOX − todos os seriais já encerrados no Forms · 🟢 encerrou hoje · 🟡 1 dia · 🟠 2 dias · 🔴 3+ dias</div>' +
     '<table><thead><tr><th>TT</th><th>Técnico</th><th>Área</th><th>Velocidade / Descrição</th>' +
     '<th>Qtd<br>(linha)</th><th>Total<br>carga</th><th>Enc.<br>hoje</th><th>Total<br>enc.</th>' +
@@ -784,8 +784,6 @@ function medidaMaterial_(material, agregador, grupo) {
  */
 function categoriaChave_(material, agregador) {
   const t = [material, agregador].join(' ').toUpperCase();
-  if (t.indexOf('CONECTOR') >= 0 && t.indexOf('INTERN') >= 0) return 'CONECTOR INTERNO';
-  if (t.indexOf('CONECTOR') >= 0 && t.indexOf('EXTERN') >= 0) return 'CONECTOR EXTERNO';
   if (t.indexOf('CONECTOR') >= 0)                              return 'CONECTOR';
   if (t.indexOf('PLAQUETA') >= 0)                             return 'PLAQUETA';
   if (t.indexOf('ESTICADOR') >= 0 || t.indexOf('ANEL') >= 0)  return 'ESTICADOR / ANEL';
@@ -821,7 +819,7 @@ var CATS_MISC_ = [
 
 /** Ordem de exibição da seção materiais-chave. */
 var ORDEM_CHAVE_ = [
-  'CABO / DROP (peças)', 'CABO ROLO 500M', 'CONECTOR INTERNO', 'CONECTOR EXTERNO',
+  'CABO / DROP (peças)', 'CABO ROLO 500M',
   'CONECTOR', 'PLAQUETA', 'ESTICADOR / ANEL', 'CUNHA'
 ];
 
@@ -1479,7 +1477,7 @@ function montarPainelModems() {
   const sh = ss.insertSheet(nome, 0);
 
   // 9 colunas: TT | Técnico | Área | Velocidade | Qtd em carga (líquida) | Encerrados hoje | Total encerrados (histórico) | Último encerramento | Status
-  titulo_(sh, 'A1:I1', 'PAINEL MODEMS TCI — CARGA LÍQUIDA POR TT (só ONT · MESH · MODEM)');
+  titulo_(sh, 'A1:I1', 'PAINEL MODEMS TCI — CARGA LÍQUIDA POR TT');
   sh.getRange('A2:I2').merge()
     .setValue('Carga = ALMOX SERIALIZADA − TODOS os seriais já encerrados no Forms (histórico) · Somente TT da EQUIPES · Atualizado: ' +
       Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm'))
