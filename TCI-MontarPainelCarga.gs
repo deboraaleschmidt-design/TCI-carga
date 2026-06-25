@@ -473,8 +473,11 @@ function lerFormsInstalados_(cfg, equipe) {
     const seriais = [s1, s2].filter(Boolean);
     if (!seriais.length) continue;
 
+    const dataRaw = ixData >= 0 ? row[ixData] : '';
+    const dataIso = formatarDataIso_(dataRaw);
+
     porTt[tt].instalacoes.push({
-      data:      ixData      >= 0 ? String(row[ixData]      || '') : '',
+      data:      dataIso,
       protocolo: ixProtocolo >= 0 ? String(row[ixProtocolo] || '') : '',
       tipo:      ixTipo      >= 0 ? String(row[ixTipo]      || '') : '',
       erro:      ixErro      >= 0 ? String(row[ixErro]      || '') : '',
@@ -714,32 +717,36 @@ function montarPainelModems() {
   const equipe = carregarEquipeTci_(cfg);
   const modems = lerModemsAlmox_(cfg, equipe.porTt);
   const forms  = lerFormsInstalados_(cfg, equipe);
+
+  const tz = Session.getScriptTimeZone();
+  const hoje   = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const ontem  = Utilities.formatDate(new Date(Date.now() - 86400000), tz, 'yyyy-MM-dd');
+
   // Serials baixados HOJE no Forms — usados para abater da carga (serial = equipamento único)
-  const instaladosHoje = coletarSeriaisInstalados_(forms);
+  const instaladosHoje = coletarSeriaisInstalados_(forms, hoje);
 
   const nome = 'PAINEL MODEMS';
   let old = ss.getSheetByName(nome);
   if (old) ss.deleteSheet(old);
   const sh = ss.insertSheet(nome, 0);
 
-  // 8 colunas: TT | Técnico | Área | Velocidade/Descrição | Qtd em carga (líquida) | Total em carga | Baixados hoje (Forms) | Status
-  titulo_(sh, 'A1:H1', 'PAINEL MODEMS TCI — CARGA POR TT (serial baixado no Forms abate da carga)');
-  sh.getRange('A2:H2').merge()
-    .setValue('ALMOX SERIALIZADA menos os serials já baixados no Forms hoje · Somente TT da EQUIPES · Atualizado: ' +
-      Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'))
+  // 10 colunas: TT | Técnico | Área | Velocidade | Qtd em carga (líquida) | Total em carga | Baixados hoje | Total Forms (histórico) | Preencheu hoje/ontem? | Status
+  titulo_(sh, 'A1:J1', 'PAINEL MODEMS TCI — CARGA POR TT · controle de preenchimento Forms');
+  sh.getRange('A2:J2').merge()
+    .setValue('Carga líquida = ALMOX menos serials já baixados no Forms hoje · Somente TT da EQUIPES · Atualizado: ' +
+      Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm'))
     .setFontStyle('italic').setHorizontalAlignment('center').setFontSize(10);
 
-  cabecalhoTabela_(sh, 'A4:H4', [
+  cabecalhoTabela_(sh, 'A4:J4', [
     'TT', 'Técnico', 'Área', 'Velocidade / Descrição', 'Qtd em carga (líquida)',
-    'Total em carga', 'Baixados hoje (Forms)', 'Status'
+    'Total em carga', 'Baixados hoje', 'Total Forms (histórico)', 'Preencheu hoje/ontem?', 'Status'
   ]);
 
-  // Agrupa por TT e por velocidade — abatendo serial já instalado no Forms
+  // Agrupa por TT e por velocidade — abatendo serial já instalado no Forms hoje
   const porTt = {};
   modems.forEach(function (m) {
     if (!porTt[m.tt]) porTt[m.tt] = { velocidades: {}, total: 0, baixados: 0 };
     if (m.serial && instaladosHoje[m.serial]) {
-      // Serial já baixado no Forms → sai da carga (coluna E reduz automaticamente)
       porTt[m.tt].baixados += 1;
       return;
     }
@@ -749,26 +756,45 @@ function montarPainelModems() {
 
   const linhas = equipe.lista.map(function (tec) {
     const almox = porTt[tec.tt];
+    const form  = forms[tec.tt];
 
-    const totalCarga = almox ? almox.total : 0;
-    const baixados   = almox ? almox.baixados : 0;
+    const totalCarga  = almox ? almox.total   : 0;
+    const baixados    = almox ? almox.baixados : 0;
     const velocOrdenadas = almox ? Object.keys(almox.velocidades).sort() : [];
     const colVeloc = velocOrdenadas.map(function (v) { return v || '(sem descrição)'; }).join('\n');
     const colQtd   = velocOrdenadas.map(function (v) { return almox.velocidades[v]; }).join('\n');
 
-    return [tec.tt, tec.nome, tec.area, colVeloc, colQtd, totalCarga, baixados || '', tec.status];
+    // Total de preenchimentos históricos no Forms (todos os dias)
+    const totalForms = form ? form.instalacoes.length : 0;
+
+    // Preencheu hoje OU ontem?
+    let preencheuStatus = 'NÃO PREENCHEU';
+    if (form && form.instalacoes.length > 0) {
+      const preencheuHoje  = form.instalacoes.some(function (ins) { return ins.data === hoje; });
+      const preencheuOntem = form.instalacoes.some(function (ins) { return ins.data === ontem; });
+      if (preencheuHoje)       preencheuStatus = 'SIM — hoje';
+      else if (preencheuOntem) preencheuStatus = 'SIM — ontem';
+      else                     preencheuStatus = 'NÃO (últimos 2 dias)';
+    }
+
+    return [
+      tec.tt, tec.nome, tec.area, colVeloc, colQtd,
+      totalCarga, baixados || '', totalForms || '', preencheuStatus, tec.status
+    ];
   });
 
   linhas.sort(function (a, b) { return Number(b[5]) - Number(a[5]); });
 
   if (linhas.length) {
-    rangeLinhas_(sh, 5, 1, linhas.length, 8).setValues(linhas);
+    rangeLinhas_(sh, 5, 1, linhas.length, 10).setValues(linhas);
     rangeLinhas_(sh, 5, 6, linhas.length, 1).setNumberFormat('#,##0');
     rangeLinhas_(sh, 5, 4, linhas.length, 1).setWrap(true);
     rangeLinhas_(sh, 5, 5, linhas.length, 1).setWrap(true).setHorizontalAlignment('center');
+    // Colorir coluna "Preencheu hoje/ontem?" (col I = índice 9)
+    colorirPreenchimento_(sh, 5, 5 + linhas.length - 1, 9);
   }
 
-  [90, 220, 80, 280, 110, 100, 130, 90].forEach(function (w, i) {
+  [90, 220, 80, 260, 110, 100, 100, 110, 140, 90].forEach(function (w, i) {
     sh.setColumnWidth(i + 1, w);
   });
   sh.setFrozenRows(4);
@@ -776,11 +802,25 @@ function montarPainelModems() {
   ss.toast('Painel modems atualizado.', 'TCI Carga', 8);
 }
 
-/** Conjunto de serials baixados hoje no Forms (qualquer técnico). serial → true */
-function coletarSeriaisInstalados_(formsPorTt) {
+function colorirPreenchimento_(sh, rowIni, rowFim, col) {
+  const range = sh.getRange(rowIni, col, rowFim - rowIni + 1, 1);
+  const vals  = range.getValues();
+  for (let i = 0; i < vals.length; i++) {
+    const s = String(vals[i][0] || '').toUpperCase();
+    let bg = null;
+    if (s.indexOf('SIM — HOJE') >= 0)   bg = '#e8f5e9';  // verde
+    else if (s.indexOf('SIM — ONTEM') >= 0) bg = '#fff8e1'; // amarelo
+    else if (s.indexOf('NÃO') >= 0)     bg = '#ffebee';  // vermelho
+    if (bg) sh.getRange(rowIni + i, col).setBackground(bg);
+  }
+}
+
+/** Serials baixados no Forms na data indicada (qualquer técnico). serial → true */
+function coletarSeriaisInstalados_(formsPorTt, dataIso) {
   const set = {};
   Object.keys(formsPorTt).forEach(function (tt) {
     formsPorTt[tt].instalacoes.forEach(function (ins) {
+      if (dataIso && ins.data && ins.data !== dataIso) return;
       ins.seriais.forEach(function (s) {
         const v = String(s || '').trim().toUpperCase();
         if (v) set[v] = true;
