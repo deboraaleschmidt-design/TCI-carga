@@ -126,28 +126,63 @@ function construirHtmlGerencial_() {
     const dataHoje  = snapshots.datas[snapshots.datas.length - 1];
     const dataOntem = snapshots.datas.length >= 2 ? snapshots.datas[snapshots.datas.length - 2] : null;
 
-    let ths = '<th>TT</th><th>Técnico</th><th>Área</th>';
-    CATS_MISC_.forEach(function (c) { ths += '<th>' + esc_(c.label) + '</th>'; });
-
-    let rows = '';
+    // pré-computa por técnico (para colunas ativas e ofensores)
+    const dadosTec = [];
     Object.keys(equipe.porTt).sort().forEach(function (tt) {
       const tec = equipe.porTt[tt];
       const h = somarCatsMiscTecnico_(snapshots, dataHoje,  tt);
       const o = somarCatsMiscTecnico_(snapshots, dataOntem, tt);
       if (!CATS_MISC_.some(function (c) { return h[c.key] > 0 || o[c.key] > 0; })) return;
-      let tds = '<td class="tt">' + esc_(tt) + '</td><td>' + esc_(tec.nome) + '</td><td>' + esc_(tec.area || '') + '</td>';
+      let totalH = 0, moveu = false;
       CATS_MISC_.forEach(function (c) {
-        const vh = h[c.key] || 0, vo = o[c.key] || 0;
-        const cor = !dataOntem ? '' : (vh !== vo ? '#e8f5e9' : '#ffcdd2');
+        totalH += (h[c.key] || 0);
+        if ((h[c.key] || 0) !== (o[c.key] || 0)) moveu = true;
+      });
+      dadosTec.push({ tt: tt, tec: tec, h: h, o: o, totalH: totalH, moveu: moveu });
+    });
+    // só colunas com algum saldo (DROP ROLO some se zero em todos)
+    const catsAtivas = CATS_MISC_.filter(function (c) {
+      return dadosTec.some(function (d) { return (d.h[c.key] || 0) > 0 || (d.o[c.key] || 0) > 0; });
+    });
+
+    // tabela de ofensores
+    let ofensoresHtml = '';
+    if (dataOntem) {
+      const ofensores = dadosTec.filter(function (d) { return !d.moveu && d.totalH > 0; })
+        .sort(function (a, b) { return b.totalH - a.totalH; }).slice(0, 10);
+      if (ofensores.length) {
+        let oRows = '';
+        ofensores.forEach(function (d) {
+          oRows += '<tr><td class="tt">' + esc_(d.tt) + '</td><td>' + esc_(d.tec.nome) +
+            '</td><td>' + esc_(d.tec.area || '') + '</td>' +
+            '<td class="num" style="background:#ffcdd2"><b>' + d.totalH.toLocaleString('pt-BR') + '</b></td></tr>';
+        });
+        ofensoresHtml =
+          '<div class="card"><div class="titulo" style="background:#b71c1c">⚠️ OFENSORES — MAIOR CARGA PARADA (sem movimentação ontem→hoje)</div>' +
+          '<table><thead><tr><th>TT</th><th>Técnico</th><th>Área</th><th>Total em carga (parado)</th></tr></thead>' +
+          '<tbody>' + oRows + '</tbody></table></div>';
+      }
+    }
+
+    let ths = '<th>TT</th><th>Técnico</th><th>Área</th>';
+    catsAtivas.forEach(function (c) { ths += '<th>' + esc_(c.label) + '</th>'; });
+
+    let rows = '';
+    dadosTec.forEach(function (d) {
+      let tds = '<td class="tt">' + esc_(d.tt) + '</td><td>' + esc_(d.tec.nome) + '</td><td>' + esc_(d.tec.area || '') + '</td>';
+      catsAtivas.forEach(function (c) {
+        const vh = d.h[c.key] || 0, vo = d.o[c.key] || 0;
+        // zero ou sem ontem → sem cor; movimentou → verde; parado com saldo → vermelho
+        const cor = (!dataOntem || vh === 0) ? '' : (vh !== vo ? '#e8f5e9' : '#ffcdd2');
         tds += '<td class="num" style="background:' + cor + '">' + vh.toLocaleString('pt-BR') + '</td>';
       });
       rows += '<tr>' + tds + '</tr>';
     });
-    miscResumo =
+    miscResumo = ofensoresHtml +
       '<div class="card"><div class="titulo">PAINEL MISCELÂNIA TCI — CARGA ATUAL POR TÉCNICO</div>' +
       '<div class="sub">Saldo col ' + esc_(cfg.COL_SALDO_MISC) + ' · ' +
       (dataOntem ? ('comparação ' + dataOntem + ' → ' + dataHoje) : ('1º dia: ' + dataHoje)) +
-      ' · 🟢 movimentou · 🔴 parado</div>' +
+      ' · 🟢 movimentou · 🔴 parado (com saldo)</div>' +
       '<table><thead><tr>' + ths + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   } else {
     miscResumo = '<div class="card"><div class="titulo">PAINEL MISCELÂNIA</div>' +
@@ -878,7 +913,27 @@ function montarPainelMiscelania() {
   if (old) ss.deleteSheet(old);
   const sh = ss.insertSheet(nome, 0);
 
-  const NC = CATS_MISC_.length + 3; // TT, Técnico, Área + categorias
+  // Pré-computa somas por técnico para definir colunas ativas e ofensores
+  const dadosTec = [];
+  Object.keys(equipe.porTt).sort().forEach(function (tt) {
+    const tec = equipe.porTt[tt];
+    const h = somarCatsMiscTecnico_(snapshots, dataHoje,  tt);
+    const o = somarCatsMiscTecnico_(snapshots, dataOntem, tt);
+    if (!CATS_MISC_.some(function (c) { return h[c.key] > 0 || o[c.key] > 0; })) return;
+    let totalH = 0, moveu = false;
+    CATS_MISC_.forEach(function (c) {
+      totalH += (h[c.key] || 0);
+      if ((h[c.key] || 0) !== (o[c.key] || 0)) moveu = true;
+    });
+    dadosTec.push({ tt: tt, tec: tec, h: h, o: o, totalH: totalH, moveu: moveu });
+  });
+
+  // Só mantém colunas de categoria que têm algum saldo (ex.: DROP ROLO some se for 0 em todos)
+  const catsAtivas = CATS_MISC_.filter(function (c) {
+    return dadosTec.some(function (d) { return (d.h[c.key] || 0) > 0 || (d.o[c.key] || 0) > 0; });
+  });
+
+  const NC = catsAtivas.length + 3; // TT, Técnico, Área + categorias ativas
   const colFim = colLetra_(Math.max(NC, 9));
 
   titulo_(sh, 'A1:' + colFim + '1', 'PAINEL MISCELANIA TCI — CARGA ATUAL POR TÉCNICO (saldo col ' + cfg.COL_SALDO_MISC + ')');
@@ -898,33 +953,51 @@ function montarPainelMiscelania() {
 
   let row = 5;
 
+  // ── OFENSORES: quem mais tem em carga e não movimentou (parados) ──
+  if (dataOntem) {
+    const ofensores = dadosTec.filter(function (d) { return !d.moveu && d.totalH > 0; })
+      .sort(function (a, b) { return b.totalH - a.totalH; })
+      .slice(0, 10);
+    if (ofensores.length) {
+      sh.getRange(row, 1).setValue('⚠️ OFENSORES — maior carga parada (sem movimentação de ontem→hoje)')
+        .setFontWeight('bold').setFontSize(11).setFontColor('#b71c1c');
+      row++;
+      cabecalhoTabela_(sh, 'A' + row + ':D' + row, ['TT', 'Técnico', 'Área', 'Total em carga (parado)']);
+      const linCabOf = row;
+      row++;
+      const linhasOf = ofensores.map(function (d) {
+        return [d.tt, d.tec.nome, d.tec.area || '', d.totalH];
+      });
+      rangeLinhas_(sh, row, 1, linhasOf.length, 4).setValues(linhasOf);
+      rangeLinhas_(sh, row, 4, linhasOf.length, 1).setNumberFormat('#,##0');
+      for (let i = 0; i < linhasOf.length; i++) sh.getRange(row + i, 4).setBackground('#ffcdd2');
+      sh.getRange('A' + linCabOf + ':D' + (row + linhasOf.length - 1)).setBorder(
+        true, true, true, true, true, true, '#e57373', SpreadsheetApp.BorderStyle.SOLID);
+      row += linhasOf.length + 2;
+    }
+  }
+
   // ── SEÇÃO 1: RESUMO POR TÉCNICO — quantidade por categoria, farol por célula ──
   sh.getRange(row, 1).setValue('RESUMO — quantidade em carga por técnico e categoria').setFontWeight('bold').setFontSize(11);
   row++;
-  const cabResumo = ['TT', 'Técnico', 'Área'].concat(CATS_MISC_.map(function (c) { return c.label; }));
+  const cabResumo = ['TT', 'Técnico', 'Área'].concat(catsAtivas.map(function (c) { return c.label; }));
   cabecalhoTabela_(sh, 'A' + row + ':' + colLetra_(NC) + row, cabResumo);
   const linCabResumo = row;
   row++;
 
   const linhasResumo = [];
   const corResumo = []; // matriz de cores por célula de categoria
-  Object.keys(equipe.porTt).sort().forEach(function (tt) {
-    const tec = equipe.porTt[tt];
-    const h = somarCatsMiscTecnico_(snapshots, dataHoje,  tt);
-    const o = somarCatsMiscTecnico_(snapshots, dataOntem, tt);
-    const temAlgo = CATS_MISC_.some(function (c) { return h[c.key] > 0 || o[c.key] > 0; });
-    if (!temAlgo) return;
-
-    const lin = [tt, tec.nome, tec.area || ''];
+  dadosTec.forEach(function (d) {
+    const lin = [d.tt, d.tec.nome, d.tec.area || ''];
     const cores = [];
-    CATS_MISC_.forEach(function (c) {
-      const vh = h[c.key] || 0;
-      const vo = o[c.key] || 0;
+    catsAtivas.forEach(function (c) {
+      const vh = d.h[c.key] || 0;
+      const vo = d.o[c.key] || 0;
       lin.push(vh);
-      // VERDE se houve movimentação (saldo mudou); VERMELHO se igual; sem ontem → sem cor
-      if (!dataOntem)      cores.push(null);
-      else if (vh !== vo)  cores.push('#e8f5e9');
-      else                 cores.push('#ffcdd2');
+      // VERDE se movimentou; VERMELHO se parado COM saldo; zero ou sem ontem → sem cor
+      if (!dataOntem || vh === 0)  cores.push(null);
+      else if (vh !== vo)          cores.push('#e8f5e9');
+      else                         cores.push('#ffcdd2');
     });
     linhasResumo.push(lin);
     corResumo.push(cores);
@@ -933,7 +1006,7 @@ function montarPainelMiscelania() {
   if (linhasResumo.length) {
     const fim = row + linhasResumo.length - 1;
     rangeLinhas_(sh, row, 1, linhasResumo.length, NC).setValues(linhasResumo);
-    rangeLinhas_(sh, row, 4, linhasResumo.length, CATS_MISC_.length).setNumberFormat('#,##0');
+    rangeLinhas_(sh, row, 4, linhasResumo.length, catsAtivas.length).setNumberFormat('#,##0');
     for (let i = 0; i < corResumo.length; i++) {
       for (let j = 0; j < corResumo[i].length; j++) {
         if (corResumo[i][j]) sh.getRange(row + i, 4 + j).setBackground(corResumo[i][j]);
@@ -985,9 +1058,10 @@ function montarPainelMiscelania() {
     const saldoOntem = snapOntem ? snapOntem.saldo : 0;
 
     let status, cor, obsMov;
-    if (!dataOntem) { status = 'AGUARDANDO 2º DIA'; cor = null; obsMov = ''; }
+    if (!dataOntem)                    { status = 'AGUARDANDO 2º DIA'; cor = null; obsMov = ''; }
+    else if (saldoHoje === 0)          { status = 'SEM SALDO';  cor = null; obsMov = ''; }
     else if (saldoHoje !== saldoOntem) { status = 'MOVIMENTOU'; cor = '#e8f5e9'; obsMov = ''; }
-    else { status = 'PARADO'; cor = '#ffcdd2'; obsMov = 'sem movimentação'; }
+    else                               { status = 'PARADO';     cor = '#ffcdd2'; obsMov = 'sem movimentação'; }
 
     const obsBase = (ref.observacao || '').trim();
     if (obsBase) notasObs.push({ offset: linhas.length, texto: 'Observação almox: ' + obsBase });
