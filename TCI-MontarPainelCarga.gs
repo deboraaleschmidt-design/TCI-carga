@@ -199,9 +199,9 @@ function criarAbaHistorico_(ss) {
   let sh = ss.getSheetByName(nome);
   if (!sh) sh = ss.insertSheet(nome);
   if (sh.getLastRow() < 1) {
-    sh.getRange('A1:H1').setValues([[
+    sh.getRange('A1:I1').setValues([[
       'Data snapshot', 'TT', 'Nome técnico', 'Cód. material', 'Material',
-      'Grupo material', 'Agregador', 'Saldo'
+      'Grupo material', 'Agregador', 'Saldo', 'Segmento'
     ]]).setFontWeight('bold').setBackground('#e8eaf6');
     sh.setFrozenRows(1);
   }
@@ -285,12 +285,12 @@ function registrarSnapshotMisc() {
   removerSnapshotData_(shHist, hoje);
 
   const saida = linhasMisc.map(function (r) {
-    return [hoje, r.tt, r.nome, r.codmaterial, r.material, r.grupo, r.agregador, r.saldo];
+    return [hoje, r.tt, r.nome, r.codmaterial, r.material, r.grupo, r.agregador, r.saldo, r.segmento];
   });
 
   if (saida.length) {
     const start = shHist.getLastRow() + 1;
-    rangeLinhas_(shHist, start, 1, saida.length, 8).setValues(saida);
+    rangeLinhas_(shHist, start, 1, saida.length, 9).setValues(saida);
   }
 
   ss.toast(
@@ -320,14 +320,15 @@ function lerMiscFiltrada_(cfg, porTt) {
   const dados = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
   const header = dados[0].map(normalizarTexto_);
   const ix = {
-    tt:    indiceColuna_(header, ['codarmazem', 'cod armazem', 'tt']),
-    nome:  indiceColuna_(header, ['armazem']),
-    cod:   indiceColuna_(header, ['codmaterial', 'cod material']),
-    mat:   indiceColuna_(header, ['material']),
-    grupo: indiceColuna_(header, ['grupo material']),
-    agreg: indiceColuna_(header, ['agregador']),
-    saldo: indiceColuna_(header, ['saldo']),
-    sub:   indiceColuna_(header, ['subsegmento', 'sub grupo agregador'])
+    tt:       indiceColuna_(header, ['codarmazem', 'cod armazem', 'tt']),
+    nome:     indiceColuna_(header, ['armazem']),
+    cod:      indiceColuna_(header, ['codmaterial', 'cod material']),
+    mat:      indiceColuna_(header, ['material']),
+    grupo:    indiceColuna_(header, ['grupo material']),
+    agreg:    indiceColuna_(header, ['agregador']),
+    saldo:    indiceColuna_(header, ['saldo']),
+    sub:      indiceColuna_(header, ['subsegmento', 'sub grupo agregador']),
+    segmento: indiceColuna_(header, ['segmento'])
   };
 
   const mapa = {};
@@ -356,7 +357,8 @@ function lerMiscFiltrada_(cfg, porTt) {
         codmaterial: cod,
         material:    material,
         grupo:       grupo,
-        agregador:   ix.agreg >= 0 ? String(row[ix.agreg] || '') : '',
+        agregador:   ix.agreg    >= 0 ? String(row[ix.agreg]    || '') : '',
+        segmento:    ix.segmento >= 0 ? String(row[ix.segmento] || '') : '',
         saldo:       0
       };
     }
@@ -466,11 +468,11 @@ function montarPainelMiscelania() {
   if (old) ss.deleteSheet(old);
   const sh = ss.insertSheet(nome, 0);
 
-  titulo_(sh, 'A1:J1', 'PAINEL MISCELANIA TCI — ONTEM × HOJE (por TT)');
+  titulo_(sh, 'A1:K1', 'PAINEL MISCELANIA TCI — ONTEM × HOJE (por TT)');
   const txtComp = dataOntem
     ? ('Comparação: ' + dataOntem + ' → ' + dataHoje)
     : ('1º snapshot: ' + dataHoje + ' — rode amanhã para ver ontem × hoje');
-  sh.getRange('A2:J2').merge()
+  sh.getRange('A2:K2').merge()
     .setValue(txtComp + '  |  Atualizado: ' + Utilities.formatDate(
       new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'
     ))
@@ -482,10 +484,10 @@ function montarPainelMiscelania() {
   sh.getRange(row, 1).setValue('DETALHE POR TÉCNICO E MATERIAL').setFontWeight('bold').setFontSize(11);
   row++;
   const cab = [
-    'TT', 'Técnico', 'Área', 'Material', 'Grupo', 'DROP?',
+    'TT', 'Técnico', 'Área', 'Segmento', 'Material', 'Grupo', 'DROP?',
     'Saldo ontem', 'Saldo hoje', 'Variação', 'Situação'
   ];
-  cabecalhoTabela_(sh, 'A' + row + ':J' + row, cab);
+  cabecalhoTabela_(sh, 'A' + row + ':K' + row, cab);
   const linhaCab = row;
   row++;
 
@@ -523,6 +525,7 @@ function montarPainelMiscelania() {
       tt,
       tec.nome,
       tec.area,
+      ref.segmento || '',
       ref.material,
       ref.grupo,
       ehDrop_(ref.material, ref.agregador, ref.grupo) ? 'SIM' : '',
@@ -535,15 +538,15 @@ function montarPainelMiscelania() {
 
   if (linhas.length) {
     const fim = row + linhas.length - 1;
-    rangeLinhas_(sh, row, 1, linhas.length, 10).setValues(linhas);
-    rangeLinhas_(sh, row, 7, linhas.length, 3).setNumberFormat('#,##0');
-    colorirSituacao_(sh, row, fim, 10);
-    sh.getRange('A' + linhaCab + ':J' + fim).setBorder(
+    rangeLinhas_(sh, row, 1, linhas.length, 11).setValues(linhas);
+    rangeLinhas_(sh, row, 8, linhas.length, 3).setNumberFormat('#,##0');
+    colorirSituacao_(sh, row, fim, 11);
+    sh.getRange('A' + linhaCab + ':K' + fim).setBorder(
       true, true, true, true, true, true, '#bdbdbd', SpreadsheetApp.BorderStyle.SOLID
     );
   }
 
-  [90, 220, 80, 280, 120, 50, 90, 90, 80, 110].forEach(function (w, i) {
+  [90, 220, 80, 100, 260, 110, 50, 90, 90, 80, 110].forEach(function (w, i) {
     sh.setColumnWidth(i + 1, w);
   });
   sh.setFrozenRows(linhaCab);
@@ -616,7 +619,8 @@ function classificarVariacao_(ontem, hoje) {
 
 function lerSnapshots_(shHist) {
   const last = shHist.getLastRow();
-  const dados = rangeLinhas_(shHist, 2, 1, last - 1, 8).getValues();
+  const numCols = Math.min(shHist.getLastColumn(), 9);
+  const dados = rangeLinhas_(shHist, 2, 1, last - 1, numCols).getValues();
   const porData = {};
   const setDatas = {};
 
@@ -635,7 +639,8 @@ function lerSnapshots_(shHist) {
       material:    String(row[4] || ''),
       grupo:       String(row[5] || ''),
       agregador:   String(row[6] || ''),
-      saldo:       parseNumero_(row[7])
+      saldo:       parseNumero_(row[7]),
+      segmento:    String(row[8] || '')
     };
   });
 
@@ -801,14 +806,21 @@ function normalizarTexto_(v) {
 }
 
 /**
- * Busca coluna pelo header. Tanto o header quanto os candidatos são normalizados
- * antes da comparação, então acentos nos candidatos não causam falha de busca.
+ * Busca coluna pelo header (candidatos e headers normalizados).
+ * Primeiro passa: match exato em todos os candidatos.
+ * Segunda passa: substring — evita que 'codmaterial' seja retornado ao buscar 'material'.
  */
 function indiceColuna_(header, candidatos) {
   for (let c = 0; c < candidatos.length; c++) {
     const alvo = normalizarTexto_(candidatos[c]);
     for (let i = 0; i < header.length; i++) {
-      if (header[i] === alvo || header[i].indexOf(alvo) >= 0) return i;
+      if (header[i] === alvo) return i;
+    }
+  }
+  for (let c = 0; c < candidatos.length; c++) {
+    const alvo = normalizarTexto_(candidatos[c]);
+    for (let i = 0; i < header.length; i++) {
+      if (header[i].indexOf(alvo) >= 0) return i;
     }
   }
   return -1;
