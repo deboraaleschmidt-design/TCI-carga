@@ -1,0 +1,647 @@
+{
+  "name": "PAINEL CARGA TCI — Gestech WhatsApp",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "painel-carga-waha",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -800,
+        300
+      ],
+      "id": "pc001-webhook",
+      "name": "Webhook WAHA",
+      "webhookId": "painel-carga-waha-001"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const API = 'http://waha:3000';\nconst KEY = 'minha_chave_123';\nconst CONFIRM_CHATS = ['555185670380@c.us', '5551985670380@c.us'];\nconst SESSION = 'default';\n\nconst item = $input.first().json;\nconst body = item.body || item;\nconst payload = body.payload || body;\nconst session = body.session || payload.session || SESSION;\nconst from = String(payload.from || '');\nconst fromMe = payload.fromMe === true;\nconst event = String(body.event || '');\nconst hoje = $now.setZone('America/Sao_Paulo').toFormat('dd/MM/yyyy');\n\nfunction acharGrupo(p) {\n  const campos = [\n    p.from, p.chatId, p.to,\n    p._data && p._data.key && p._data.key.remoteJid,\n    p._data && p._data.id && p._data.id.remote,\n  ];\n  for (let i = 0; i < campos.length; i++) {\n    const v = String(campos[i] || '');\n    if (v.includes('@g.us')) return v;\n  }\n  return '';\n}\n\nfunction tipoObrigatorio(nome) {\n  const n = String(nome || '').toLowerCase();\n  if (/follow.?up|saldo.?gestech|gestech.*follow/i.test(n)) return 'misc';\n  if (/serializados|controle.*hc|controle\\s*serializados/i.test(n)) return 'modems';\n  return '';\n}\n\nfunction ehPlanilha(ext, mime, nome) {\n  if (['xlsx','xlsm','xls'].includes(ext)) return true;\n  if (mime.includes('spreadsheet') || mime.includes('excel')) return true;\n  if (/follow.?up|saldo.?gestech|serializados|controle.*hc|\\.xls/i.test(nome)) return true;\n  return false;\n}\n\nconst grupoId = acharGrupo(payload);\n\nif (event && !/message/i.test(event)) {\n  return [{ json: { skip: true, motivo: 'evento: ' + event, from: from, grupoId: grupoId } }];\n}\n\nconst type = String(payload.type || payload._data?.type || '').toLowerCase();\nconst media = payload.media || payload._data?.media || {};\nconst filename = String(\n  media.filename || payload._data?.filename || payload._data?.message?.documentMessage?.fileName || ''\n).trim();\nconst mimetype = String(\n  media.mimetype || media.mimeType || payload._data?.message?.documentMessage?.mimetype || ''\n).toLowerCase();\nconst msgId = String(payload.id || payload._data?.id?.id || payload._data?.key?.id || '');\nconst hasMedia = payload.hasMedia === true || type.includes('document') || !!media.url || (!!msgId && type.includes('document'));\nconst obrigatorio = tipoObrigatorio(filename) || tipoObrigatorio(mimetype);\n\nif (obrigatorio && !grupoId) {\n  throw new Error('OBRIGATORIO bloqueado: planilha ' + obrigatorio + ' sem grupo @g.us — confira WAHA webhook');\n}\nif (!grupoId && !obrigatorio) {\n  return [{ json: { skip: true, motivo: 'nao e grupo (@g.us)', from: from, grupoId: '' } }];\n}\nif (fromMe && !obrigatorio) {\n  return [{ json: { skip: true, motivo: 'fromMe', from: from, grupoId: grupoId } }];\n}\nif (fromMe && obrigatorio) {\n  return [{ json: { skip: true, motivo: 'fromMe (obrigatorio so de outrem no grupo)', from: from, grupoId: grupoId, obrigatorio: obrigatorio } }];\n}\n\nif (msgId) {\n  const sd = $getWorkflowStaticData('global');\n  if (!sd.seenMsg) sd.seenMsg = {};\n  if (sd.seenMsg[msgId]) {\n    return [{ json: { skip: true, motivo: 'duplicado webhook', from: from, grupoId: grupoId, obrigatorio: obrigatorio } }];\n  }\n  sd.seenMsg[msgId] = Date.now();\n  const keys = Object.keys(sd.seenMsg);\n  if (keys.length > 400) {\n    keys.sort(function (a, b) { return sd.seenMsg[a] - sd.seenMsg[b]; });\n    keys.slice(0, keys.length - 250).forEach(function (k) { delete sd.seenMsg[k]; });\n  }\n}\n\nif (hasMedia && (media.url || msgId)) {\n  let url = media.url ? String(media.url) : '';\n  if (url && !url.startsWith('http')) url = API + url;\n  if (!url && msgId) {\n    url = API + '/api/' + session + '/files/' + encodeURIComponent(msgId);\n  }\n  const ext = (filename.split('.').pop() || '').toLowerCase();\n  if (!ehPlanilha(ext, mimetype, filename)) {\n    if (obrigatorio) {\n      throw new Error('OBRIGATORIO ' + obrigatorio + ' rejeitado: anexo nao e planilha (' + (filename || type) + ')');\n    }\n    return [{ json: { skip: true, motivo: 'anexo nao e planilha: ' + (filename || type), from: from, grupoId: grupoId } }];\n  }\n  let tipo = obrigatorio || 'modems';\n  if (!obrigatorio) {\n    if (/follow.?up|saldo.?gestech|gestech.*follow/i.test(filename)) tipo = 'misc';\n    else if (/serializados|controle.*hc/i.test(filename)) tipo = 'modems';\n    else if (/follow.?up|saldo.?gestech/i.test(mimetype + ' ' + filename)) tipo = 'misc';\n  }\n  return [{ json: {\n    skip: false,\n    obrigatorio: obrigatorio || '',\n    tipo,\n    session,\n    from,\n    grupoId,\n    filename,\n    downloadUrl: url,\n    msgId: msgId,\n    hoje: hoje,\n    materiaisId: '1W1K7OzbZejmSbEUnQxJ9u43phV0sHYNWkeW3KIbv0vM',\n    confirmChat: CONFIRM_CHATS[0],\n    confirmChats: CONFIRM_CHATS,\n    apiKey: KEY,\n  }}];\n}\n\nconst texto = String(payload.body || payload._data?.body || '').trim();\nconst pareceBaseTci = /serial\\s*[:\\s]|(?:de|origem)\\s*[:\\s].*para|\\bpara\\s*[:\\s]/i.test(texto);\nif (texto.length > 8 && pareceBaseTci) {\n  return [{ json: {\n    skip: false, tipo: 'basetci', session, from, texto, obrigatorio: '',\n    materiaisId: '1W1K7OzbZejmSbEUnQxJ9u43phV0sHYNWkeW3KIbv0vM', confirmChat: CONFIRM_CHATS[0], confirmChats: CONFIRM_CHATS, apiKey: KEY,\n  }}];\n}\n\nreturn [{ json: { skip: true, motivo: 'sem planilha nem texto BASE TCI', from: from, grupoId: grupoId, type: type, filename: filename } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        300
+      ],
+      "id": "pc002-filtrar",
+      "name": "Filtrar Grupo WAHA"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-skip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -320,
+        300
+      ],
+      "id": "pc003-if",
+      "name": "Processar?"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.tipo }}",
+                    "rightValue": "misc",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "misc"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.tipo }}",
+                    "rightValue": "modems",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "modems"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.tipo }}",
+                    "rightValue": "basetci",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "basetci"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -80,
+        280
+      ],
+      "id": "pc004-switch",
+      "name": "Tipo entrada"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.downloadUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $json.apiKey }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        160,
+        80
+      ],
+      "id": "pc005-dl-misc",
+      "name": "Download planilha misc"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.downloadUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $json.apiKey }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        160,
+        280
+      ],
+      "id": "pc006-dl-modems",
+      "name": "Download planilha modems"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const XLSX = require('xlsx');\nconst meta = $('Filtrar Grupo WAHA').first().json;\nconst bin = $input.first().binary?.data;\nif (!bin) throw new Error('Download vazio — confira WAHA e URL do anexo');\n\nconst buf = Buffer.from(bin.data, 'base64');\nconst wb = XLSX.read(buf, {\n  type: 'buffer', cellFormula: false, cellHTML: false, cellStyles: false, sheetStubs: false,\n});\n\nlet sheetName = wb.SheetNames.find(function (n) {\n  return String(n).toUpperCase().indexOf('SALDO GESTECH') >= 0;\n});\nif (!sheetName) {\n  throw new Error('Aba SALDO GESTECH nao encontrada. Abas: ' + wb.SheetNames.join(' | '));\n}\n\nconst rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '', raw: false });\n\nfunction pick(row, aliases) {\n  const norm = {};\n  Object.keys(row).forEach(function (k) {\n    norm[String(k).toLowerCase().replace(/\\s+/g, ' ').trim()] = row[k];\n  });\n  for (let i = 0; i < aliases.length; i++) {\n    const v = norm[aliases[i].toLowerCase()];\n    if (v !== undefined && v !== '') return v;\n  }\n  return '';\n}\n\nconst header = [\n  'CodArmazem','Armazem','CodMaterial','Material',\n  'Grupo Material','Agregador','Sub Grupo Agregador','Segmento','Subsegmento','Saldo'\n];\nconst dataRows = [];\n\nrows.forEach(function (row) {\n  let tt = String(pick(row, ['codarmazem','cod armazem','tt'])).trim().toUpperCase();\n  if (!tt.startsWith('TT')) return;\n  const saldoRaw = pick(row, ['saldo']);\n  const saldo = Number(String(saldoRaw).replace(/\\./g, '').replace(',', '.')) || Number(saldoRaw) || 0;\n  if (saldo <= 0) return;\n  dataRows.push([\n    tt,\n    pick(row, ['armazem']),\n    pick(row, ['codmaterial','cod material']),\n    pick(row, ['material']),\n    pick(row, ['grupo material']),\n    pick(row, ['agregador']),\n    pick(row, ['sub grupo agregador','subsegmento']),\n    pick(row, ['segmento','segmento2','_segmento']),\n    pick(row, ['subsegmento','_subsegmento']),\n    saldo,\n  ]);\n});\n\nif (!dataRows.length) {\n  if (meta.obrigatorio === 'misc') throw new Error('OBRIGATORIO misc: SALDO GESTECH sem linhas TT');\n  throw new Error('SALDO GESTECH: nenhuma linha TT com saldo > 0');\n}\n\nreturn [{\n  json: {\n    sheetName: 'BASE MICELANEAS',\n    documentId: meta.materiaisId,\n    filename: meta.filename,\n    tipo: 'misc',\n    total: dataRows.length,\n    header: header,\n    rows: dataRows,\n    confirmChat: meta.confirmChat,\n    apiKey: meta.apiKey,\n    session: meta.session,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        80
+      ],
+      "id": "pc007-parse-misc",
+      "name": "Valores SALDO GESTECH"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const XLSX = require('xlsx');\nconst meta = $('Filtrar Grupo WAHA').first().json;\nconst bin = $input.first().binary?.data;\nif (!bin) throw new Error('Download vazio');\n\nconst buf = Buffer.from(bin.data, 'base64');\nconst wb = XLSX.read(buf, {\n  type: 'buffer', cellFormula: false, cellHTML: false, cellStyles: false, sheetStubs: false,\n});\n\nlet sheetName = wb.SheetNames.find(function (n) {\n  return String(n).toUpperCase() === 'GESTECH';\n});\nif (!sheetName) {\n  sheetName = wb.SheetNames.find(function (n) {\n    return String(n).toUpperCase().indexOf('BASE SERIALIZADOS') >= 0;\n  });\n}\nif (!sheetName) throw new Error('Aba GESTECH / BASE SERIALIZADOS nao encontrada');\n\nconst rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '', raw: false });\nconst isBase = String(sheetName).toUpperCase().indexOf('BASE SERIALIZADOS') >= 0;\n\nfunction pick(row, aliases) {\n  const norm = {};\n  Object.keys(row).forEach(function (k) {\n    norm[String(k).toLowerCase().replace(/\\s+/g, ' ').trim()] = row[k];\n  });\n  for (let i = 0; i < aliases.length; i++) {\n    const v = norm[aliases[i].toLowerCase()];\n    if (v !== undefined && v !== '') return v;\n  }\n  return '';\n}\n\nconst header = ['Serial','Gestech','Material','Velocidade'];\nconst dataRows = [];\n\nrows.forEach(function (row) {\n  const serial = String(\n    pick(row, isBase ? ['n de serie','numero de serie','serial'] : ['serial'])\n  ).trim().toUpperCase();\n  let tt = String(pick(row, isBase ? ['gestech'] : ['codarm','armazem','gestech','matricula'])).trim().toUpperCase();\n  if (!serial || !tt.startsWith('TT')) return;\n  const material = pick(row, isBase ? ['texto breve material','material'] : ['material']);\n  const vel = pick(row, ['velocidade','texto breve material','material']);\n  dataRows.push([serial, tt, material, vel]);\n});\n\nif (!dataRows.length) {\n  if (meta.obrigatorio === 'modems') throw new Error('OBRIGATORIO modems: GESTECH sem serial TT');\n  throw new Error('Modems: nenhum serial TT valido');\n}\n\nreturn [{\n  json: {\n    sheetName: 'ALMOX SERIALIZADA',\n    documentId: meta.materiaisId,\n    filename: meta.filename,\n    tipo: 'modems',\n    total: dataRows.length,\n    header: header,\n    rows: dataRows,\n    confirmChat: meta.confirmChat,\n    apiKey: meta.apiKey,\n    session: meta.session,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        280
+      ],
+      "id": "pc008-parse-modems",
+      "name": "Valores GESTECH modems"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const meta = $('Filtrar Grupo WAHA').first().json;\nconst t = String(meta.texto || '').replace(/\\r/g, '');\n\nfunction extrair(re, idx) {\n  const m = t.match(re);\n  return m && m[idx] ? String(m[idx]).trim() : '';\n}\n\nconst serial = extrair(/serial[:\\s]+([A-Z0-9]+)/i, 1) || extrair(/\\b([A-Z0-9]{8,20})\\b/, 1);\nconst de = extrair(/(?:de|origem)[:\\s]+(.+?)(?:\\n|para|$)/i, 1);\nconst para = extrair(/para[:\\s]+(.+?)(?:\\n|$)/i, 1);\nconst obs = extrair(/obs[:\\s]+(.+)/i, 1) || (t.toUpperCase().indexOf('PENDENTE') >= 0 ? 'PENDENCIA TRANSFERENCIA' : t.substring(0, 120));\n\nif (!serial && !de && !para) {\n  throw new Error('Texto BASE TCI nao reconhecido (precisa DE/PARA ou serial)');\n}\n\nconst hoje = $now.setZone('America/Sao_Paulo').toFormat('dd/MM/yyyy');\n\nreturn [{\n  json: {\n    sheetName: 'BASE TCI',\n    documentId: meta.materiaisId,\n    tipo: 'basetci',\n    header: ['Serial','Colaborador E','Receptor F','OK G','Data H','Obs I'],\n    rows: [[serial, de, para, '', hoje, obs]],\n    confirmChat: meta.confirmChat,\n    apiKey: meta.apiKey,\n    session: meta.session,\n    total: 1,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        480
+      ],
+      "id": "pc009-parse-btci",
+      "name": "Parse texto BASE TCI"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first().json;\nconst meta = $('Filtrar Grupo WAHA').first().json;\nconst header = item.header || [];\nconst rows = item.rows || [];\nif (!rows.length) {\n  if (meta.obrigatorio) {\n    throw new Error('OBRIGATORIO ' + meta.obrigatorio + ' falhou: zero linhas para gravar');\n  }\n  throw new Error('Sem linhas para gravar');\n}\n// BASE TCI = append (NAO apaga a base manual). misc/modems = substituicao do snapshot.\nconst append = item.tipo === 'basetci';\nconst values = append ? rows : [header].concat(rows);\nconst hoje = $now.setZone('America/Sao_Paulo').toFormat('dd/MM/yyyy HH:mm');\nconst obr = meta.obrigatorio || '';\nconst rotulo = obr === 'misc' ? 'FOLLOW UP → BASE MICELANEAS' : (obr === 'modems' ? 'SERIALIZADOS → ALMOX' : item.sheetName);\nconst prefix = obr ? '🚨 OBRIGATÓRIO DO DIA — ' : '✅ ';\nconst acao = append ? 'append' : 'substituicao';\nconst msg = prefix + rotulo + '\\n' + item.sheetName + ' (' + acao + '): ' + rows.length + ' linha(s)\\nArquivo: ' + (item.filename || meta.filename || '') + '\\n' + hoje;\nreturn [{\n  json: {\n    documentId: item.documentId,\n    sheetName: item.sheetName,\n    values: values,\n    rowCount: rows.length,\n    append: append,\n    msg: msg,\n    obrigatorio: obr,\n    confirmChat: meta.confirmChat,\n    confirmChats: meta.confirmChats || [meta.confirmChat],\n    apiKey: item.apiKey || meta.apiKey,\n    session: item.session || meta.session || 'default',\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        280
+      ],
+      "id": "pc010-prep",
+      "name": "Preparar MATERIAIS"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-append",
+              "leftValue": "={{ $json.append }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        820,
+        280
+      ],
+      "id": "pc016-if-append",
+      "name": "É append (BASE TCI)?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $('Preparar MATERIAIS').item.json.documentId }}/values/{{ encodeURIComponent($('Preparar MATERIAIS').item.json.sheetName + '!A1') }}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ range: $('Preparar MATERIAIS').item.json.sheetName + '!A1', majorDimension: 'ROWS', values: $('Preparar MATERIAIS').item.json.values }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        160
+      ],
+      "id": "pc017-append",
+      "name": "Append BASE TCI",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "VINCULAR_NO_N8N",
+          "name": "Conta do Google Sheets 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.documentId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $json.sheetName }}",
+          "mode": "name"
+        },
+        "clear": "wholeSheet",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1040,
+        360
+      ],
+      "id": "pc011-clear",
+      "name": "Limpar aba MATERIAIS",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "VINCULAR_NO_N8N",
+          "name": "Conta do Google Sheets 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $('Preparar MATERIAIS').item.json.documentId }}/values/{{ encodeURIComponent($('Preparar MATERIAIS').item.json.sheetName + '!A1') }}?valueInputOption=USER_ENTERED",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ range: $('Preparar MATERIAIS').item.json.sheetName + '!A1', majorDimension: 'ROWS', values: $('Preparar MATERIAIS').item.json.values }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1260,
+        360
+      ],
+      "id": "pc012-gravar",
+      "name": "Gravar valores MATERIAIS",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "VINCULAR_NO_N8N",
+          "name": "Conta do Google Sheets 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://waha:3000/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $('Preparar MATERIAIS').item.json.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ session: $('Preparar MATERIAIS').item.json.session, chatId: $('Preparar MATERIAIS').item.json.confirmChat, text: $('Preparar MATERIAIS').item.json.msg }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1480,
+        280
+      ],
+      "id": "pc013-aviso",
+      "name": "Aviso WhatsApp"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prep = $('Preparar MATERIAIS').first().json;\nconst meta = $('Filtrar Grupo WAHA').first().json;\nconst hojeKey = $now.setZone('America/Sao_Paulo').toFormat('dd/MM/yyyy');\nconst sd = $getWorkflowStaticData('global');\nif (!sd.obrigatorioDia) sd.obrigatorioDia = {};\nif (!sd.obrigatorioDia[hojeKey]) sd.obrigatorioDia[hojeKey] = {};\nconst chave = prep.obrigatorio || meta.obrigatorio;\nif (chave === 'misc' || chave === 'modems') {\n  sd.obrigatorioDia[hojeKey][chave] = {\n    ok: true,\n    linhas: prep.rowCount,\n    aba: prep.sheetName,\n    arquivo: meta.filename || '',\n    hora: $now.setZone('America/Sao_Paulo').toFormat('HH:mm'),\n  };\n}\nconst keys = Object.keys(sd.obrigatorioDia);\nif (keys.length > 14) {\n  keys.sort();\n  keys.slice(0, keys.length - 10).forEach(function (k) { delete sd.obrigatorioDia[k]; });\n}\nreturn [{ json: { ok: true, dia: hojeKey, registro: sd.obrigatorioDia[hojeKey] } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        280
+      ],
+      "id": "pc015-registro",
+      "name": "Registro OBRIGATORIO dia"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        480
+      ],
+      "id": "pc014-skip",
+      "name": "Ignorado"
+    }
+  ],
+  "connections": {
+    "Webhook WAHA": {
+      "main": [
+        [
+          {
+            "node": "Filtrar Grupo WAHA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar Grupo WAHA": {
+      "main": [
+        [
+          {
+            "node": "Processar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processar?": {
+      "main": [
+        [
+          {
+            "node": "Tipo entrada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignorado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tipo entrada": {
+      "main": [
+        [
+          {
+            "node": "Download planilha misc",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download planilha modems",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse texto BASE TCI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download planilha misc": {
+      "main": [
+        [
+          {
+            "node": "Valores SALDO GESTECH",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download planilha modems": {
+      "main": [
+        [
+          {
+            "node": "Valores GESTECH modems",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valores SALDO GESTECH": {
+      "main": [
+        [
+          {
+            "node": "Preparar MATERIAIS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valores GESTECH modems": {
+      "main": [
+        [
+          {
+            "node": "Preparar MATERIAIS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse texto BASE TCI": {
+      "main": [
+        [
+          {
+            "node": "Preparar MATERIAIS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar MATERIAIS": {
+      "main": [
+        [
+          {
+            "node": "É append (BASE TCI)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É append (BASE TCI)?": {
+      "main": [
+        [
+          {
+            "node": "Append BASE TCI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Limpar aba MATERIAIS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append BASE TCI": {
+      "main": [
+        [
+          {
+            "node": "Aviso WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limpar aba MATERIAIS": {
+      "main": [
+        [
+          {
+            "node": "Gravar valores MATERIAIS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gravar valores MATERIAIS": {
+      "main": [
+        [
+          {
+            "node": "Aviso WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aviso WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Registro OBRIGATORIO dia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "staticData": null,
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "versionId": "painel-carga-gestech-v5-append-basetci"
+}
